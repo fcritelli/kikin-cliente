@@ -211,6 +211,36 @@ router.post("/logout", async (req, res) => {
   return res.json({ ok: true });
 });
 
+// PUT /api/v1/accounts/profile — edita nome
+router.put("/profile", requireAuth, perUserLimiter, async (req, res) => {
+  try {
+    const parsed = z.object({ fullName: z.string().min(2, "Informe seu nome") }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
+    }
+    const accountId = (req as any).account.accountId;
+    const account = await accounts.updateProfile(accountId, parsed.data.fullName);
+    return res.json({ account });
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
+});
+
+// PUT /api/v1/accounts/whatsapp — define o WhatsApp único (contato/lembretes)
+router.put("/whatsapp", requireAuth, perUserLimiter, async (req, res) => {
+  try {
+    const parsed = z.object({ phone: z.string().min(8, "Informe seu WhatsApp").max(20) }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
+    }
+    const accountId = (req as any).account.accountId;
+    const account = await accounts.updateWhatsapp(accountId, parsed.data.phone);
+    return res.json({ account });
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
+});
+
 router.get("/me", requireAuth, perUserLimiter, async (req, res) => {
   const accountId = (req as any).account.accountId;
   const account = await accounts.getAccount(accountId);

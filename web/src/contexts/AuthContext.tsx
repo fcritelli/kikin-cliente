@@ -24,6 +24,8 @@ interface AuthContextValue {
   /** true quando há sessão válida (account carregado ou otimista com token) */
   authed: boolean;
   applySession: (tokens: Tokens) => Promise<PublicAccount | null>;
+  /** Recarrega /me e atualiza o account (usado após editar perfil/whatsapp). */
+  reloadAccount: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -81,6 +83,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [loadMe]);
 
+  const reloadAccount = useCallback(async (): Promise<void> => {
+    const me = await loadMe();
+    if (!me) clearTokens();
+  }, [loadMe]);
+
   const logout = useCallback(async (): Promise<void> => {
     const refresh = getRefreshToken();
     if (refresh) api.logout(refresh).catch(() => undefined);
@@ -94,9 +101,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       booting,
       authed: account !== null,
       applySession,
+      reloadAccount,
       logout,
     }),
-    [account, booting, applySession, logout]
+    [account, booting, applySession, reloadAccount, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

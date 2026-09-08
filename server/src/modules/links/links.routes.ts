@@ -156,6 +156,32 @@ router.post("/auto", requireAuth, perUserLimiter, async (req, res) => {
   }
 });
 
+// PUT /api/v1/links/whatsapp-optin — consentimento de WhatsApp por vínculo
+router.put("/whatsapp-optin", requireAuth, perUserLimiter, async (req, res) => {
+  try {
+    const parsed = z.object({ salonId: z.string().uuid(), optin: z.boolean() }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
+    }
+    const accountId = (req as any).account.accountId;
+    const link = await links.setWhatsappOptin({ accountId, salonId: parsed.data.salonId, optin: parsed.data.optin });
+    return res.json({ link });
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
+});
+
+// GET /api/v1/links/me/appointments/history — histórico (inclui canceladas/faltas)
+router.get("/me/appointments/history", requireAuth, perUserLimiter, async (req, res) => {
+  try {
+    const accountId = (req as any).account.accountId;
+    const appointments = await links.listAppointmentsHistory(accountId);
+    return res.json({ appointments });
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
+});
+
 // GET /api/v1/links/me/appointments — próximos agendamentos em todos os vínculos
 router.get("/me/appointments", requireAuth, perUserLimiter, async (req, res) => {
   try {

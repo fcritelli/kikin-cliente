@@ -27,6 +27,10 @@
   `account_establishment_links` (LGPD: só hash + máscara; dedupe: mesmo telefone não vincula a
   duas contas).
 - [x] "Meus próximos horários" listando agendamentos futuros do(s) vínculo(s).
+- [x] **Área logada com navegação lateral**: Dashboard (visão geral + agendar + próximos) ·
+  Consultas (próximas e histórico com status) · Estabelecimentos (vínculos: cadastro mascarado,
+  opt-in de WhatsApp, agendar neste, recuperar por WhatsApp) · Perfil (nome editável, e-mail,
+  WhatsApp único editável — guardado só hash+máscara em client_accounts).
 - [x] **Portal = único método de agendamento**: sem página pública por slug e sem lista global.
   O cliente agenda dentro do `/conta` (no estabelecimento vinculado; na 1ª vez escolhe o
   estabelecimento, que vira o vínculo). Convidado sem conta não agenda.

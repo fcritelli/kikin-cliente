@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { query, withTransaction } from "../../db.js";
 import { config } from "../../config.js";
+import { hashPhoneBR, maskPhoneBR, normalizePhoneBR } from "../../utils/phone.js";
 
 export interface SessionTokens {
   accessToken: string;
@@ -234,6 +235,7 @@ export interface PublicAccount {
   emailVerified: boolean;
   avatarUrl: string | null;
   authProvider: string;
+  whatsappMask: string | null;
 }
 
 export async function getAccount(accountId: string): Promise<PublicAccount | null> {
@@ -244,8 +246,9 @@ export async function getAccount(accountId: string): Promise<PublicAccount | nul
     email_verified_at: Date | null;
     avatar_url: string | null;
     auth_provider: string;
+    whatsapp_phone_masked: string | null;
   }>(
-    `SELECT id, email, full_name, email_verified_at, avatar_url, auth_provider
+    `SELECT id, email, full_name, email_verified_at, avatar_url, auth_provider, whatsapp_phone_masked
      FROM client_accounts WHERE id = $1`,
     [accountId]
   );
@@ -258,7 +261,34 @@ export async function getAccount(accountId: string): Promise<PublicAccount | nul
     emailVerified: Boolean(a.email_verified_at),
     avatarUrl: a.avatar_url,
     authProvider: a.auth_provider,
+    whatsappMask: a.whatsapp_phone_masked || null,
   };
+}
+
+/** Atualiza o nome exibido da conta. */
+export async function updateProfile(accountId: string, fullName: string): Promise<PublicAccount> {
+  const name = String(fullName || "").trim();
+  if (name.length < 2) throw err(400, "VALIDATION_ERROR", "Informe seu nome.");
+  await query("UPDATE client_accounts SET full_name = $1, updated_at = now() WHERE id = $2", [name, accountId]);
+  const account = await getAccount(accountId);
+  if (!account) throw err(404, "NOT_FOUND", "Conta não encontrada.");
+  return account;
+}
+
+/** Define o WhatsApp único da conta (contato/lembretes). LGPD: só hash + máscara. */
+export async function updateWhatsapp(accountId: string, phone: string): Promise<PublicAccount> {
+  const normalized = normalizePhoneBR(phone);
+  if (!normalized) throw err(400, "INVALID_PHONE", "Informe um número de WhatsApp válido com DDD.");
+  const hash = hashPhoneBR(normalized, config.KIKIN_CLIENT_PORTAL_SECRET)!;
+  const masked = maskPhoneBR(normalized)!;
+  await query(
+    `UPDATE client_accounts SET whatsapp_phone_hash = $1, whatsapp_phone_masked = $2, whatsapp_updated_at = now(), updated_at = now()
+     WHERE id = $3`,
+    [hash, masked, accountId]
+  );
+  const account = await getAccount(accountId);
+  if (!account) throw err(404, "NOT_FOUND", "Conta não encontrada.");
+  return account;
 }
 
 export function err(status: number, code: string, message: string): Error & { status: number; code: string } {

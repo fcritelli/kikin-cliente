@@ -311,3 +311,49 @@ export async function bookForLinkedClient(input: {
     startAt: input.startAt,
   });
 }
+
+/** Histórico de consultas (inclui canceladas/faltas) do cliente nos vínculos. */
+export async function listAppointmentsHistory(accountId: string): Promise<FutureAppointment[]> {
+  const links = await listLinks(accountId);
+  const kikin = newKikin();
+  const all: FutureAppointment[] = [];
+  for (const link of links) {
+    try {
+      const data = await kikin.listAppointments({ salonId: link.salonId, clientId: link.kikinClientId, future: false });
+      const items: any[] = Array.isArray(data?.appointments) ? data.appointments : [];
+      for (const a of items) {
+        all.push({
+          id: String(a.id),
+          groupId: a.groupId ? String(a.groupId) : null,
+          salonId: link.salonId,
+          salonName: link.salonName,
+          serviceId: a.serviceId ? String(a.serviceId) : null,
+          staffId: a.staffId ? String(a.staffId) : null,
+          startAt: String(a.startAt),
+          endAt: a.endAt ? String(a.endAt) : "",
+          status: String(a.status || ""),
+          serviceName: a.serviceName ? String(a.serviceName) : null,
+          staffName: a.staffName ? String(a.staffName) : null,
+          durationMin: a.durationMin != null ? Number(a.durationMin) : null,
+        });
+      }
+    } catch (e: any) {
+      console.error(`[links] falha ao listar histórico do vínculo ${link.id}:`, e?.message || e);
+    }
+  }
+  all.sort((a, b) => (a.startAt < b.startAt ? 1 : -1));
+  return all;
+}
+
+/** Liga/desliga o consentimento de WhatsApp do vínculo (notificações). */
+export async function setWhatsappOptin(input: { accountId: string; salonId: string; optin: boolean }): Promise<EstablishmentLink> {
+  const links = await listLinks(input.accountId);
+  const link = links.find((l) => l.salonId === input.salonId);
+  if (!link) throw err(403, "SALON_NOT_LINKED", "Você não tem vínculo com este estabelecimento.");
+  await query(
+    `UPDATE account_establishment_links SET whatsapp_optin_at = $1, updated_at = now() WHERE id = $2`,
+    [input.optin ? new Date().toISOString() : null, link.id]
+  );
+  const row = await getLinkRow(link.id);
+  return row!;
+}

@@ -16,6 +16,7 @@ export interface PublicAccount {
   emailVerified: boolean;
   avatarUrl: string | null;
   authProvider: string; // 'local' | 'google' | 'microsoft'
+  whatsappMask: string | null;
 }
 
 export type SocialProvider = "google" | "microsoft";
@@ -144,6 +145,11 @@ export const api = {
   autoLink: (body: { salonId: string; phone: string; whatsappOptIn?: boolean }) =>
     request<{ link: EstablishmentLink | null }>("/links/auto", { method: "POST", body }),
   myAppointments: () => request<{ appointments: FutureAppointment[] }>("/links/me/appointments"),
+  myAppointmentsHistory: () => request<{ appointments: FutureAppointment[] }>("/links/me/appointments/history"),
+  setWhatsappOptin: (body: { salonId: string; optin: boolean }) =>
+    request<{ link: EstablishmentLink }>("/links/whatsapp-optin", { method: "PUT", body }),
+  updateProfile: (fullName: string) => request<{ account: PublicAccount }>("/accounts/profile", { method: "PUT", body: { fullName } }),
+  updateWhatsapp: (phone: string) => request<{ account: PublicAccount }>("/accounts/whatsapp", { method: "PUT", body: { phone } }),
   bookForLink: (body: { salonId: string; serviceIds: string[]; staffId?: string | null; startAt: string; whatsappOptIn?: boolean }) =>
     request<{ success: boolean; created: { appointment_id: string; service_name: string; start_at: string; end_at: string }[] }>(
       "/links/book",

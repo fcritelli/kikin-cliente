@@ -79,7 +79,10 @@
   Não há página pública por slug.
 - `contexts/AuthContext.tsx` valida a sessão salva via `/accounts/me` no boot e tenta `refresh`
   quando o access token expirou; `lib/api.ts` centraliza o cliente HTTP e os helpers de OAuth.
-- `/conta` → "Agendar": modal com serviços → profissional → data/horário reais → confirmar.
+- `/conta` = área logada com **navegação lateral**: Dashboard · Consultas (próximas + histórico,
+  com status) · Estabelecimentos (vínculos + opt-in WhatsApp + recuperar) · Perfil (nome e WhatsApp
+  único editáveis — conta guarda só hash+máscara). Agendar em modal:
+  serviços → profissional → data/horário reais → confirmar.
   Vinculado usa o cadastro do client (POST interno /book, sem telefone); sem vínculo escolhe o
   estabelecimento uma vez, agenda com telefone=WhatsApp+opt-in e o auto-vínculo (`/links/auto`)
   é criado. Agendar exige conta (convidado não agenda).
