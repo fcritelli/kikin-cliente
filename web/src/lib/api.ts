@@ -141,8 +141,74 @@ export const api = {
     request<{ candidates: ClientCandidate[] }>("/links/claim", { method: "POST", body }),
   confirmLink: (body: { salonId: string; phone: string; clientId: string }) =>
     request<{ link: EstablishmentLink }>("/links/confirm", { method: "POST", body }),
+  autoLink: (body: { salonId: string; phone: string }) =>
+    request<{ link: EstablishmentLink | null }>("/links/auto", { method: "POST", body }),
   myAppointments: () => request<{ appointments: FutureAppointment[] }>("/links/me/appointments"),
+
+  // ---- agendamento (proxy do booking público do Kikin, mesmo fluxo do /agendar antigo)
+  bookingSalons: () => request<{ salons: BookingSalonMeta[] }>("/booking/salons"),
+  bookingSalon: (slug: string) => request<BookingSalonMeta>(`/booking/${slug}/salon`),
+  bookingServices: (slug: string) => request<BookingService[]>(`/booking/${slug}/services`),
+  bookingStaff: (slug: string, serviceIds: string[]) =>
+    request<BookingStaff[]>(`/booking/${slug}/staff${serviceIds.length ? `?serviceIds=${encodeURIComponent(serviceIds.join(","))}` : ""}`),
+  bookingSlots: (slug: string, params: { date: string; serviceIds: string[]; staffId?: string | null }) => {
+    const qs = new URLSearchParams({ date: params.date, serviceIds: params.serviceIds.join(",") });
+    if (params.staffId) qs.set("staffId", params.staffId);
+    return request<BookingSlot[]>(`/booking/${slug}/slots?${qs.toString()}`);
+  },
+  bookingBook: (slug: string, body: BookPayload) =>
+    request<BookResult>(`/booking/${slug}/book`, { method: "POST", body }),
 };
+
+export interface BookingSalonMeta {
+  id: string;
+  name: string;
+  slug: string;
+  business_type?: string;
+  logo_url?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  online_booking_enabled: boolean;
+}
+
+export interface BookingService {
+  id: string;
+  name: string;
+  category: string;
+  description?: string | null;
+  duration_min: number;
+  price: number;
+}
+
+export interface BookingStaff {
+  id: string;
+  name: string;
+  role?: string | null;
+  avatar_url?: string | null;
+}
+
+export interface BookingSlot {
+  start_at: string; // "HH:MM"
+  available_staff: string[];
+}
+
+export interface BookPayload {
+  serviceIds: string[];
+  staffId?: string | null;
+  startAt: string;
+  clientName: string;
+  clientPhone: string;
+}
+
+export interface BookResult {
+  appointments: { appointment_id: string; service_name: string; start_at: string; end_at: string }[];
+  staff_name: string;
+  total_start: string;
+  total_end: string;
+  total_duration_min: number;
+  status: string;
+}
 
 export interface ClientCandidate {
   clientId: string;

@@ -29,9 +29,13 @@
 - [x] "Meus próximos horários" listando agendamentos futuros do(s) vínculo(s).
 - [ ] Fase futura: telefone também por CPF; vínculo multi-estabelecimento já suportado pelo schema.
 **Agendamentos**
-- Meus agendamentos futuros (do(s) estabelecimento(s) vinculados).
-- Cancelar (com confirmação) e remarcar (regra de janela simples).
-- Agendar novo: fluxo reusando agenda/catálogo do Kikin com dados do cliente logado.
+- [x] Meus agendamentos futuros (do(s) estabelecimento(s) vinculados).
+- [x] Agendar novo no portal: `/agendar/:slug` (link que o salão passa) reusa o booking do Kikin
+  via proxy do gateway — serviços → profissionais → data/horário reais (/staff + /slots) → dados →
+  confirmar. Convidado continua podendo agendar sem conta.
+- [x] Auto-vínculo pós-booking: conta logada agenda e o client daquele salão é vinculado sozinho
+  (`/links/auto`); convidado que cria a conta com o mesmo telefone entra com o salão já vinculado.
+- [ ] Cancelar (com confirmação) e remarcar (regra de janela simples).
 **LGPD/UX**
 - Consentimento no cadastro; "Meus dados" (exportar/excluir conta).
 - Mensagens de confirmação por e-mail (e WhatsApp em fase posterior).

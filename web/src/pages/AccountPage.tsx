@@ -10,7 +10,9 @@ import {
   type ClientCandidate,
   type EstablishmentLink,
   type FutureAppointment,
+  type BookingSalonMeta,
 } from "@/lib/api";
+import { BOOKING_CONTEXT_KEY } from "./AgendarPage";
 
 /**
  * Área do cliente (Fase 1 · Vínculo): se a conta ainda não tem vínculo com um
@@ -33,6 +35,9 @@ export function AccountPage() {
   const [candidates, setCandidates] = useState<ClientCandidate[] | null>(null);
   const [claimMessage, setClaimMessage] = useState<string | null>(null);
 
+  // ---- agendar novo
+  const [bookSalons, setBookSalons] = useState<BookingSalonMeta[] | null>(null);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -50,6 +55,46 @@ export function AccountPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Auto-vínculo silencioso vindo de um agendamento feito como convidado:
+  // quem criou a conta logo após agendar chega aqui com o contexto salão+telefone.
+  useEffect(() => {
+    if (loading) return;
+    const raw = sessionStorage.getItem(BOOKING_CONTEXT_KEY);
+    if (!raw) return;
+    sessionStorage.removeItem(BOOKING_CONTEXT_KEY);
+    let ctx: { salonId?: string; phone?: string };
+    try {
+      ctx = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (!ctx.salonId || !ctx.phone) return;
+    (async () => {
+      setClaiming(true);
+      try {
+        const res = await api.autoLink({ salonId: ctx.salonId!, phone: ctx.phone! });
+        if (res.link) {
+          setClaimMessage("Seu agendamento foi vinculado à sua conta!");
+          await refresh();
+        }
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Erro ao vincular seu agendamento.");
+      } finally {
+        setClaiming(false);
+      }
+    })();
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadBookingSalons = async () => {
+    if (bookSalons) return;
+    try {
+      const res = await api.bookingSalons();
+      setBookSalons(res.salons);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Erro ao carregar estabelecimentos.");
+    }
+  };
 
   const startClaim = async () => {
     if (!phone || phone.replace(/\D/g, "").length < 10)
@@ -166,6 +211,43 @@ export function AccountPage() {
           </div>
         )}
 
+        {claimMessage && (
+          <div className="mt-6 rounded-xl border border-green-600/30 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+            {claimMessage}
+          </div>
+        )}
+
+        {/* Agendar novo — sempre disponível */}
+        <section className="mt-8 rounded-2xl border border-black/10 bg-white p-5 sm:p-6">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-black uppercase tracking-tight">Agendar novo horário</h2>
+              <p className="text-xs text-black/50">Escolha um estabelecimento e veja os horários disponíveis.</p>
+            </div>
+            <Button size="sm" onClick={() => { void loadBookingSalons(); }}>
+              Agendar novo
+            </Button>
+          </div>
+          {bookSalons && bookSalons.length > 0 && (
+            <div className="mt-4 grid gap-2">
+              {bookSalons.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => navigate(`/agendar/${s.slug}`)}
+                  className="flex items-center justify-between rounded-xl border border-black/10 px-4 py-3 text-left text-sm font-bold hover:border-blue-600 hover:bg-blue-50 transition-all cursor-pointer"
+                >
+                  <span>{s.name}</span>
+                  <span className="text-blue-600">agendar →</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {bookSalons && bookSalons.length === 0 && (
+            <p className="mt-3 text-xs text-black/50">Nenhum estabelecimento com agendamento online disponível.</p>
+          )}
+        </section>
+
         {loading ? (
           <p className="mt-10 text-sm text-black/50">Carregando…</p>
         ) : links.length === 0 ? (
@@ -198,12 +280,6 @@ export function AccountPage() {
                 {claiming ? "Buscando…" : "Encontrar meus agendamentos"}
               </Button>
             </div>
-
-            {claimMessage && (
-              <p className="mt-5 rounded-xl border border-black/10 bg-black/[0.03] px-4 py-3 text-sm text-black/70">
-                {claimMessage}
-              </p>
-            )}
 
             {candidates && candidates.length > 0 && (
               <div className="mt-6">

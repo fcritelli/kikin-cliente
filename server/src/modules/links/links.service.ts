@@ -193,3 +193,29 @@ export async function listFutureAppointments(accountId: string): Promise<FutureA
   all.sort((a, b) => (a.startAt < b.startAt ? -1 : a.startAt > b.startAt ? 1 : 0));
   return all;
 }
+
+/**
+ * Auto-vínculo pós-booking (vínculo é consequência do agendamento):
+ * o booking público do Kikin acabou de criar/achar um `client` para (salão, telefone).
+ * Buscamos os candidatos por hash e vinculamos o client DESTE salão — silencioso
+ * (nada de "sou eu?"), pois o booking recém-feito é a prova. Idempotente.
+ *
+ * Retorna null quando ainda não há client com esse telefone no salão (ex.: agendamento
+ * em processamento) — nesse caso o portal mantém o wizard de claim como fallback.
+ */
+export async function autoLinkFromBooking(input: {
+  accountId: string;
+  salonId: string;
+  phone: string;
+}): Promise<EstablishmentLink | null> {
+  const candidates = await searchCandidates({ phone: input.phone });
+  const candidate = candidates.find((c) => c.salonId === input.salonId);
+  if (!candidate) return null;
+  // confirmLink revalida + dedupe entre contas (409 se o telefone for de outra conta)
+  return confirmLink({
+    accountId: input.accountId,
+    salonId: input.salonId,
+    phone: input.phone,
+    kikinClientId: candidate.clientId,
+  });
+}

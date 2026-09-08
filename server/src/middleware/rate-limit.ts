@@ -54,6 +54,12 @@ export const emailTokenLimiter = make({
   message: { error: "Muitos e-mails solicitados. Aguarde 15 minutos.", code: "RATE_LIMITED" },
 });
 
+export const publicBookingLimiter = make({
+  windowMs: 10 * 60 * 1000,
+  max: 40,
+  message: { error: "Muitas tentativas de agendamento. Aguarde alguns minutos.", code: "RATE_LIMITED" },
+});
+
 export const perUserLimiter = make({
   windowMs: 60 * 1000,
   max: 120,

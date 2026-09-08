@@ -16,6 +16,11 @@ const confirmSchema = z.object({
   clientId: z.string().uuid("Cliente inválido"),
 });
 
+const autoLinkSchema = z.object({
+  salonId: z.string().uuid("Estabelecimento inválido"),
+  phone: z.string().min(8, "Informe seu telefone").max(20),
+});
+
 // GET /api/v1/links/me — vínculos da conta
 router.get("/me", requireAuth, perUserLimiter, async (req, res) => {
   try {
@@ -56,6 +61,21 @@ router.post("/confirm", requireAuth, perUserLimiter, async (req, res) => {
       kikinClientId: parsed.data.clientId,
     });
     return res.status(201).json({ link });
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
+});
+
+// POST /api/v1/links/auto — vínculo silencioso pós-booking (mesmo salão do agendamento)
+router.post("/auto", requireAuth, perUserLimiter, async (req, res) => {
+  try {
+    const parsed = autoLinkSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
+    }
+    const accountId = (req as any).account.accountId;
+    const link = await links.autoLinkFromBooking({ accountId, ...parsed.data });
+    return res.json({ link });
   } catch (err: any) {
     return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
   }

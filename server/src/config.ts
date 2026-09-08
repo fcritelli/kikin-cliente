@@ -13,6 +13,8 @@ const schema = z.object({
   KIKIN_API_URL: z.string().url().default("http://localhost:3000/internal/client-portal"),
   KIKIN_CLIENT_PORTAL_ID: z.string().default("client-portal"),
   KIKIN_CLIENT_PORTAL_SECRET: z.string().min(1, "KIKIN_CLIENT_PORTAL_SECRET obrigatória"),
+  // Base da API PÚBLICA do Kikin (proxy do booking por slug — mesma usada pelo /agendar do Kikin)
+  KIKIN_PUBLIC_URL: z.string().url().default("http://localhost:3000/api/v1"),
   // SMTP opcional para e-mails de verificação/reset
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().optional().default(587),

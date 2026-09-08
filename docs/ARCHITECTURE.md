@@ -46,8 +46,12 @@
   `avatar_url` e `auth_provider`; `password_hash` fica nulo quando a conta é 100% social.
 - `links/` — vínculo conta ↔ `client(s)` do Kikin (ADR-001): claim por telefone com hash HMAC
   (nunca número cru), candidatos mascarados de TODOS os salões (sem escolha de estabelecimento),
-  confirmação "sou eu" e listagem de próximos agendamentos. Tabela `account_establishment_links`
-  (hash + máscara; telefone único por conta).
+  confirmação "sou eu", listagem de próximos agendamentos e **auto-vínculo pós-booking**
+  (`/links/auto` — o agendamento recém-feito vincula o client daquele salão sem confirmação).
+  Tabela `account_establishment_links` (hash + máscara; multi-vínculo por conta; dedupe entre contas).
+- `booking/` — proxy do booking **público** do Kikin (`GET/POST /booking/:slug/{salon,services,
+  staff,slots,book}` via `KIKIN_PUBLIC_URL`) e `GET /booking/salons` (catálogo p/ "Agendar novo").
+  O Kikin continua dono da agenda/catálogo; o portal reusa o mesmo contrato do `/agendar` antigo.
 - `kikin/` — cliente HMAC da API interna do Kikin (ADR-002): `/internal/client-portal` com
   `GET /salons`, `GET /clients/search` (hash_phone global), `GET /appointments` — implementados no
   backend do Kikin (middleware `requireClientPortalService`). Todos os salões participam; controle
@@ -60,13 +64,18 @@
 
 ## Web (web/src)
 - Rotas: `/` (Home), `/login`, `/cadastro`, `/auth` (callback OAuth + mini passo NEED_SETUP),
-  `/conta` (área do cliente pós-login, protegida), `/termos` e `/privacidade`.
+  `/agendar/:slug` (booking — o link que o salão passa), `/conta` (área do cliente pós-login,
+  protegida), `/termos` e `/privacidade`.
 - `contexts/AuthContext.tsx` valida a sessão salva via `/accounts/me` no boot e tenta `refresh`
   quando o access token expirou; `lib/api.ts` centraliza o cliente HTTP e os helpers de OAuth.
+- `/agendar/:slug`: serviços → profissional → data/horário (disponibilidade real do Kikin) → dados
+  → confirmar. Logado → vínculo automático na hora; convidado → "criar conta e acompanhar" guarda o
+  contexto `{salonId, phone}` (sessionStorage) para o `/conta` vincular sozinho após o cadastro.
 
 ## Agendar novo
-Reusa a **mesma lógica do booking público do Kikin (via slug do estabelecimento)**, com dados
-do cliente logado pré-preenchidos. Cancelar/remarcar usam endpoints de sessão (autenticados).
+O portal **proxy** os endpoints públicos do booking do Kikin (mesmo contrato do `/agendar` antigo),
+com a área logada pré-preenchendo o fluxo; o vínculo com o client é consequência do agendamento.
+Cancelar/remarcar usam endpoints de sessão (autenticados) — fase seguinte.
 
 ## Fases
 Ver `ROADMAP.md`.

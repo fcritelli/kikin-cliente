@@ -3,6 +3,7 @@ import { config, CORS_ORIGINS } from "./config.js";
 import { globalApiLimiter } from "./middleware/rate-limit.js";
 import accountsRoutes from "./modules/accounts/accounts.routes.js";
 import linksRoutes from "./modules/links/links.routes.js";
+import bookingRoutes from "./modules/booking/booking.routes.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -36,6 +37,7 @@ export function createApp(): express.Express {
   app.use("/api/v1", globalApiLimiter);
   app.use("/api/v1/accounts", accountsRoutes);
   app.use("/api/v1/links", linksRoutes);
+  app.use("/api/v1/booking", bookingRoutes);
   app.use((_req, res) => {
     res.status(404).json({ error: `Rota não encontrada: ${_req.method} ${_req.originalUrl}` });
   });
