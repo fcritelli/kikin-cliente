@@ -1,5 +1,5 @@
 import { CalendarHeart, ChevronRight, Sparkles } from "lucide-react";
-import { LipScrollZoominAnimation } from "@/components/ui/lip-scroll-zoomin-animation";
+import { CinematicScroll } from "@/components/ui/CinematicScroll";
 import { Button } from "@/components/ui/Button";
 
 /**
@@ -53,29 +53,12 @@ export function Home() {
         </div>
       </section>
 
-      {/* SCROLL CINEMÁTICO */}
+      {/* SCROLL CINEMÁTICO — portal circular expandindo (sem "beijo") */}
       <section id="experiencia">
-        <LipScrollZoominAnimation
-          title="UMA EXPERIÊNCIA, EM MOVIMENTO."
-          subtitle={
-            <>
-              AGENDE COM UM TOQUE. NOSSO <span className="font-black text-blue-600">PORTAL</span> PÕE O CONTROLE NA SUA
-              MÃO: <span className="font-black text-blue-600">HORÁRIOS</span>, <span className="font-black text-blue-600">LEMBRETES</span> E
-              SEU HISTÓRICO — TUDO NUM SÓ LUGAR, <span className="font-black text-blue-600">A QUALQUER MOMENTO</span>.
-            </>
-          }
-          outroTitle={
-            <>
-              O SEU TEMPO, <span className="font-black text-blue-600">RESPEITADO.</span>
-            </>
-          }
-          outroSubtitle={
-            <>
-              QUANDO VOCÊ ENTRA NO KIKIN CLIENTE, CADA{" "}
-              <span className="font-black text-blue-600">AGENDAMENTO</span> É UMA PROMESSA CUMPRIDA — PARA VOCÊ E PARA
-              QUEM TE ATENDE.
-            </>
-          }
+        <CinematicScroll
+          label="Seu horário"
+          caption="do círculo ao mundo: acompanhe sua agenda com um novo olhar — simples, rápido, do seu jeito."
+          accentClass="text-blue-400"
         />
       </section>
 
