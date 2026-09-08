@@ -1,5 +1,5 @@
 import { CalendarHeart, ChevronRight, Sparkles } from "lucide-react";
-import { CinematicScroll } from "@/components/ui/CinematicScroll";
+import { LogoFluidScroll } from "@/components/ui/LogoFluidScroll";
 import { Button } from "@/components/ui/Button";
 
 /**
@@ -12,8 +12,16 @@ export function Home() {
     <div className="min-h-screen w-full overflow-x-hidden bg-white text-black">
       {/* NAV */}
       <header className="fixed inset-x-0 top-0 z-50 flex items-center justify-between px-6 md:px-10 py-4 mix-blend-difference text-white">
-        <a href="#" className="text-sm font-black uppercase tracking-[0.3em]">
-          Kikin<span className="text-blue-500">.</span>Cliente
+        <a href="#" className="flex items-center gap-2 text-sm font-black lowercase tracking-tight">
+          <img
+            src="/kikin-symbol-white.png"
+            alt="kikin"
+            className="h-6 w-6 object-contain mix-blend-difference"
+          />
+          <span>
+            kikin<span className="text-[#f97316]">.</span>
+            <span className="font-bold opacity-80">cliente</span>
+          </span>
         </a>
         <nav className="flex items-center gap-2 sm:gap-4 text-[11px] sm:text-xs font-bold uppercase tracking-wider">
           <a href="#experiencia" className="hover:opacity-70">Experiência</a>
@@ -53,12 +61,11 @@ export function Home() {
         </div>
       </section>
 
-      {/* SCROLL CINEMÁTICO — portal circular expandindo (sem "beijo") */}
+      {/* SCROLL CINEMÁTICO — fluidez da LOGO DO KIKIN */}
       <section id="experiencia">
-        <CinematicScroll
+        <LogoFluidScroll
           label="Seu horário"
-          caption="do círculo ao mundo: acompanhe sua agenda com um novo olhar — simples, rápido, do seu jeito."
-          accentClass="text-blue-400"
+          caption="do símbolo ao mundo: a logo cresce e revela sua agenda — simples, rápida e fluida."
         />
       </section>
 
@@ -85,11 +92,15 @@ export function Home() {
 
       {/* FOOTER */}
       <footer className="border-t border-black/10 bg-white px-6 py-10 text-center">
-        <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-black/60">
-          Kikin<span className="text-blue-600">.</span>Cliente — referência visual
-        </p>
-        <p className="mt-2 text-[11px] text-black/40">
-          Tailwind + shadcn/ui + GSAP · componente LipScrollZoominAnimation
+        <div className="flex items-center justify-center gap-2 text-base font-black lowercase tracking-tight">
+          <img src="/kikin-symbol.png" alt="kikin" className="h-7 w-7 object-contain" />
+          <span>
+            kikin<span className="text-[#f97316]">.</span>
+            <span className="font-bold opacity-70">cliente</span>
+          </span>
+        </div>
+        <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-black/50">
+          Portal do cliente · kikin-cliente (referência visual)
         </p>
       </footer>
     </div>
