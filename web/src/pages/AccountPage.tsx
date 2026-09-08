@@ -10,13 +10,12 @@ import {
   type ClientCandidate,
   type EstablishmentLink,
   type FutureAppointment,
-  type SalonInfo,
 } from "@/lib/api";
 
 /**
  * Área do cliente (Fase 1 · Vínculo): se a conta ainda não tem vínculo com um
- * estabelecimento, roda o claim (ADR-001) — escolher salão + telefone → candidatos
- * mascarados → "sou eu". Depois mostra os próximos agendamentos do vínculo.
+ * estabelecimento, roda o claim (ADR-001) — informa o telefone → candidatos mascarados
+ * (com o nome do salão) → "sou eu". Depois mostra os próximos agendamentos do vínculo.
  */
 export function AccountPage() {
   const { account, logout } = useAuth();
@@ -29,8 +28,6 @@ export function AccountPage() {
   const [appointments, setAppointments] = useState<FutureAppointment[]>([]);
 
   // ---- claim
-  const [salons, setSalons] = useState<SalonInfo[]>([]);
-  const [salonId, setSalonId] = useState("");
   const [phone, setPhone] = useState("");
   const [claiming, setClaiming] = useState(false);
   const [candidates, setCandidates] = useState<ClientCandidate[] | null>(null);
@@ -55,7 +52,6 @@ export function AccountPage() {
   }, [refresh]);
 
   const startClaim = async () => {
-    if (!salonId) return setError("Escolha o estabelecimento.");
     if (!phone || phone.replace(/\D/g, "").length < 10)
       return setError("Informe um telefone com DDD válido.");
     setError(null);
@@ -63,10 +59,12 @@ export function AccountPage() {
     setCandidates(null);
     setClaimMessage(null);
     try {
-      const res = await api.claimClients({ salonId, phone });
+      const res = await api.claimClients({ phone });
       setCandidates(res.candidates);
       if (res.candidates.length === 0) {
-        setClaimMessage("Nenhum cadastro encontrado com este telefone neste estabelecimento.");
+        setClaimMessage(
+          "Nenhum cadastro encontrado com este telefone. Confira o número usado na reserva."
+        );
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Erro ao buscar seus agendamentos.");
@@ -79,7 +77,11 @@ export function AccountPage() {
     setError(null);
     setClaiming(true);
     try {
-      await api.confirmLink({ salonId, phone, clientId: candidate.clientId });
+      await api.confirmLink({
+        salonId: candidate.salonId,
+        phone,
+        clientId: candidate.clientId,
+      });
       setCandidates(null);
       setPhone("");
       await refresh();
@@ -89,18 +91,6 @@ export function AccountPage() {
       setClaiming(false);
     }
   };
-
-  // Carrega os salões disponíveis apenas quando a conta ainda não tem vínculo
-  useEffect(() => {
-    if (loading || links.length > 0) return;
-    api
-      .linkSalons()
-      .then((res) => {
-        setSalons(res.salons);
-        if (res.salons.length === 1) setSalonId(res.salons[0].id);
-      })
-      .catch(() => setSalons([]));
-  }, [loading, links.length]);
 
   const handleLogout = async () => {
     await logout();
@@ -183,33 +173,12 @@ export function AccountPage() {
           <section className="mt-8 rounded-2xl border border-black/10 bg-white p-6 sm:p-8 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.1)]">
             <h2 className="text-lg font-black uppercase tracking-tight">Encontre seus agendamentos</h2>
             <p className="mt-2 text-sm leading-relaxed text-black/60">
-              Já tem horário marcado num estabelecimento? Informe o telefone usado na reserva para
-              vincular sua conta — seus agendamentos aparecerão aqui. Seu telefone fica protegido
-              (LGPD): só uma versão criptografada é usada na busca.
+              Já tem horário marcado em algum estabelecimento? Informe o telefone usado na reserva e
+              buscaremos seus cadastros em todos os estabelecimentos, sem precisar escolher nenhum.
+              Seu telefone fica protegido (LGPD): só uma versão criptografada é usada na busca.
             </p>
 
             <div className="mt-6 grid gap-4">
-              <div>
-                <Label htmlFor="claim-salon">Estabelecimento</Label>
-                <select
-                  id="claim-salon"
-                  value={salonId}
-                  onChange={(e) => setSalonId(e.target.value)}
-                  className="w-full h-11 rounded-xl border border-black/15 bg-white px-3 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
-                >
-                  <option value="">Selecione…</option>
-                  {salons.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-                {salons.length === 0 && (
-                  <p className="mt-1.5 text-xs text-black/50">
-                    Nenhum estabelecimento disponível para vínculo neste ambiente.
-                  </p>
-                )}
-              </div>
               <div>
                 <Label htmlFor="claim-phone">Telefone usado na reserva</Label>
                 <Input
@@ -221,6 +190,9 @@ export function AccountPage() {
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="(11) 98765-4321"
                 />
+                <p className="mt-1.5 text-xs text-black/50">
+                  Buscamos em todos os estabelecimentos que você frequenta.
+                </p>
               </div>
               <Button type="button" onClick={startClaim} disabled={claiming} className="w-full">
                 {claiming ? "Buscando…" : "Encontrar meus agendamentos"}
@@ -241,12 +213,14 @@ export function AccountPage() {
                 <div className="mt-3 grid gap-2.5">
                   {candidates.map((c) => (
                     <div
-                      key={c.clientId}
+                      key={`${c.salonId}:${c.clientId}`}
                       className="flex items-center justify-between gap-3 rounded-xl border border-black/10 bg-white px-4 py-3"
                     >
                       <div>
                         <p className="text-sm font-bold">{c.name}</p>
-                        <p className="text-xs text-black/50">{c.phoneMask}</p>
+                        <p className="text-xs text-black/50">
+                          {c.salonName} · {c.phoneMask}
+                        </p>
                       </div>
                       <Button type="button" size="sm" onClick={() => confirmCandidate(c)} disabled={claiming}>
                         Sou eu — vincular

@@ -141,16 +141,16 @@ export class KikinPortalClient {
     return data;
   }
 
-  /** Candidatos de cliente por hash de telefone (claim — ADR-001). */
-  searchClients(salonId: string, hashPhone: string) {
+  /** Candidatos de cliente por hash de telefone em TODOS os salões (claim — ADR-001). */
+  searchClientsByHash(hashPhone: string) {
     return this.request({
-      path: "/clients",
-      query: { salon_id: salonId, hash_phone: hashPhone },
-      scope: { salonIds: [salonId] },
+      path: "/clients/search",
+      query: { hash_phone: hashPhone },
+      scope: { salonIds: [] },
     });
   }
 
-  /** Estabelecimentos autorizados ao portal (para o cliente escolher no claim). */
+  /** Metadados dos estabelecimentos (id/nome) — usados para exibir nomes nos vínculos. */
   listSalons() {
     return this.request({
       path: "/salons",

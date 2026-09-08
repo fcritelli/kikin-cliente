@@ -18,12 +18,14 @@
 - [x] Rate limit (signup/login/forgot), proteção anti-bot.
 **Vínculo**
 - [x] Endpoints internos no Kikin (`/internal/client-portal`) com HMAC X-Service-* (ADR-002):
-  `GET /salons`, `GET /clients` (busca por hash do telefone, candidatos mascarados) e
-  `GET /appointments` (próximos agendamentos do client vinculado). Salões autorizados via
-  `CLIENT_PORTAL_ALLOWED_SALON_IDS` no Kikin.
-- [x] Primeiro acesso: tela "Encontre seus agendamentos" — escolher estabelecimento + telefone →
-  candidatos mascarados → confirmar ("sou eu") — cria vínculo `account_establishment_links`
-  (LGPD: só hash + máscara; dedupe: mesmo telefone não vincula a duas contas).
+  `GET /salons` (metadados), `GET /clients/search` (busca GLOBAL por hash do telefone,
+  candidatos mascarados com nome do salão) e `GET /appointments` (próximos agendamentos do
+  client vinculado). Decisão de produto: todos os salões têm área do cliente (sem allowlist por
+  env); o controle "salão tem/não tem" virá no painel kikin-admin (futuro).
+- [x] Primeiro acesso: tela "Encontre seus agendamentos" — informa o telefone (sem escolher salão)
+  → candidatos mascarados de todos os salões → confirmar ("sou eu") — cria vínculo
+  `account_establishment_links` (LGPD: só hash + máscara; dedupe: mesmo telefone não vincula a
+  duas contas).
 - [x] "Meus próximos horários" listando agendamentos futuros do(s) vínculo(s).
 - [ ] Fase futura: telefone também por CPF; vínculo multi-estabelecimento já suportado pelo schema.
 **Agendamentos**

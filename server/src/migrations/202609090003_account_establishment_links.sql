@@ -24,8 +24,10 @@ CREATE TABLE IF NOT EXISTS account_establishment_links (
 CREATE UNIQUE INDEX IF NOT EXISTS account_establishment_links_account_salon_client_uq
   ON account_establishment_links (account_id, salon_id, kikin_client_id);
 
--- Deduplicação por telefone (ADR-001): mesmo hash não pode estar em duas contas ativas.
-CREATE UNIQUE INDEX IF NOT EXISTS account_establishment_links_phone_hash_owner_uq
+-- Deduplicação entre CONTAS (ADR-001) é feita no service (transaction: mesmo phone_hash em
+-- outra conta ativa -> 409). Aqui um índice NÃO único acelera a checagem — a mesma pessoa pode
+-- ter vínculos em vários salões (o mesmo phone_hash se repete dentro da MESMA conta).
+CREATE INDEX IF NOT EXISTS account_establishment_links_phone_hash_idx
   ON account_establishment_links (phone_hash);
 
 CREATE INDEX IF NOT EXISTS account_establishment_links_account_idx

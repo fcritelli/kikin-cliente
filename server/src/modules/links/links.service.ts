@@ -20,6 +20,8 @@ export interface SalonInfo {
 
 export interface ClientCandidate {
   clientId: string;
+  salonId: string;
+  salonName: string;
   name: string;
   phoneMask: string;
 }
@@ -49,26 +51,28 @@ function newKikin(): KikinPortalClient {
   return new KikinPortalClient();
 }
 
-export async function listAvailableSalons(): Promise<SalonInfo[]> {
+export async function listSalons(): Promise<SalonInfo[]> {
   const data = await newKikin().listSalons();
   const salons: any[] = Array.isArray(data?.salons) ? data.salons : [];
   return salons.map((s) => ({ id: String(s.id), name: String(s.name), slug: String(s.slug || "") }));
 }
 
-/** Busca candidatos mascarados por telefone informado (o telefone NUNCA sai do gateway). */
-export async function searchCandidates(input: {
-  salonId: string;
-  phone: string;
-}): Promise<ClientCandidate[]> {
+/**
+ * Busca candidatos mascarados pelo telefone em TODOS os salões que participam da área
+ * do cliente (decisão de produto: todos). O telefone nunca sai do gateway — só o hash.
+ */
+export async function searchCandidates(input: { phone: string }): Promise<ClientCandidate[]> {
   const normalized = normalizePhoneBR(input.phone);
   if (!normalized) {
     throw err(400, "INVALID_PHONE", "Informe um telefone válido.");
   }
   const hash = hashPhoneBR(normalized, config.KIKIN_CLIENT_PORTAL_SECRET)!;
-  const data = await newKikin().searchClients(input.salonId, hash);
+  const data = await newKikin().searchClientsByHash(hash);
   const candidates: any[] = Array.isArray(data?.candidates) ? data.candidates : [];
   return candidates.map((c) => ({
     clientId: String(c.clientId),
+    salonId: String(c.salonId),
+    salonName: String(c.salonName || ""),
     name: String(c.name || ""),
     phoneMask: String(c.phoneMask || maskPhoneBR(normalized) || ""),
   }));
@@ -95,11 +99,13 @@ export async function confirmLink(input: {
   if (!normalized) throw err(400, "INVALID_PHONE", "Informe um telefone válido.");
   const phoneHash = hashPhoneBR(normalized, config.KIKIN_CLIENT_PORTAL_SECRET)!;
 
-  // 1. Revalida no Kikin que esse client casa com o telefone (não confia no clientId do usuário)
-  const candidates = await searchCandidates({ salonId: input.salonId, phone: normalized });
-  const candidate = candidates.find((c) => c.clientId === input.kikinClientId);
+  // 1. Revalida no Kikin que esse client (naquele salão) casa com o telefone informado
+  const candidates = await searchCandidates({ phone: normalized });
+  const candidate = candidates.find(
+    (c) => c.clientId === input.kikinClientId && c.salonId === input.salonId
+  );
   if (!candidate) {
-    throw err(404, "CANDIDATE_NOT_FOUND", "Não encontramos este cadastro no estabelecimento. Confira o telefone.");
+    throw err(404, "CANDIDATE_NOT_FOUND", "Não encontramos este cadastro. Confira o telefone.");
   }
 
   // 2. Deduplicação (ADR-001): o mesmo telefone não pode estar vinculado a duas contas
@@ -148,7 +154,7 @@ export async function listLinks(accountId: string): Promise<EstablishmentLink[]>
        FROM account_establishment_links WHERE account_id = $1 ORDER BY confirmed_at`,
       [accountId]
     ),
-    listAvailableSalons().catch(() => [] as SalonInfo[]),
+    listSalons().catch(() => [] as SalonInfo[]),
   ]);
   const nameBySalon = new Map(salons.map((s) => [s.id, s.name]));
   return rows.rows.map((r) => ({ ...r, salonName: nameBySalon.get(r.salonId) }));

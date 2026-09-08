@@ -7,7 +7,6 @@ import * as links from "./links.service.js";
 const router = Router();
 
 const claimSchema = z.object({
-  salonId: z.string().uuid("Estabelecimento inválido"),
   phone: z.string().min(8, "Informe seu telefone").max(20),
 });
 
@@ -15,16 +14,6 @@ const confirmSchema = z.object({
   salonId: z.string().uuid("Estabelecimento inválido"),
   phone: z.string().min(8, "Informe seu telefone").max(20),
   clientId: z.string().uuid("Cliente inválido"),
-});
-
-// GET /api/v1/links/salons — estabelecimentos disponíveis para o claim
-router.get("/salons", requireAuth, perUserLimiter, async (_req, res) => {
-  try {
-    const salons = await links.listAvailableSalons();
-    return res.json({ salons });
-  } catch (err: any) {
-    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
-  }
 });
 
 // GET /api/v1/links/me — vínculos da conta
@@ -38,7 +27,7 @@ router.get("/me", requireAuth, perUserLimiter, async (req, res) => {
   }
 });
 
-// POST /api/v1/links/claim — busca candidatos mascarados por telefone
+// POST /api/v1/links/claim — busca candidatos mascarados pelo telefone em todos os salões
 router.post("/claim", requireAuth, perUserLimiter, async (req, res) => {
   try {
     const parsed = claimSchema.safeParse(req.body);

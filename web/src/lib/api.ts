@@ -136,23 +136,18 @@ export const api = {
     request<{ ok: true }>("/accounts/reset-password", { method: "POST", body: { token, password } }),
 
   // ---- vínculo cliente ↔ estabelecimento (ADR-001)
-  linkSalons: () => request<{ salons: SalonInfo[] }>("/links/salons"),
   myLinks: () => request<{ links: EstablishmentLink[] }>("/links/me"),
-  claimClients: (body: { salonId: string; phone: string }) =>
+  claimClients: (body: { phone: string }) =>
     request<{ candidates: ClientCandidate[] }>("/links/claim", { method: "POST", body }),
   confirmLink: (body: { salonId: string; phone: string; clientId: string }) =>
     request<{ link: EstablishmentLink }>("/links/confirm", { method: "POST", body }),
   myAppointments: () => request<{ appointments: FutureAppointment[] }>("/links/me/appointments"),
 };
 
-export interface SalonInfo {
-  id: string;
-  name: string;
-  slug: string;
-}
-
 export interface ClientCandidate {
   clientId: string;
+  salonId: string;
+  salonName: string;
   name: string;
   phoneMask: string;
 }
