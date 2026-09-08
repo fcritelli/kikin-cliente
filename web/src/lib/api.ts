@@ -144,6 +144,13 @@ export const api = {
   autoLink: (body: { salonId: string; phone: string }) =>
     request<{ link: EstablishmentLink | null }>("/links/auto", { method: "POST", body }),
   myAppointments: () => request<{ appointments: FutureAppointment[] }>("/links/me/appointments"),
+  cancelAppointment: (body: { salonId: string; appointmentId: string }) =>
+    request<{ success: boolean; canceledAppointments: string[] }>("/links/me/appointments/cancel", { method: "POST", body }),
+  rescheduleAppointment: (body: { salonId: string; appointmentId: string; staffId?: string | null; startAt: string }) =>
+    request<{ success: boolean; created: { appointment_id: string; service_name: string; start_at: string; end_at: string }[] }>(
+      "/links/me/appointments/reschedule",
+      { method: "POST", body }
+    ),
 
   // ---- agendamento (proxy do booking público do Kikin, mesmo fluxo do /agendar antigo)
   bookingSalons: () => request<{ salons: BookingSalonMeta[] }>("/booking/salons"),
@@ -230,13 +237,17 @@ export interface EstablishmentLink {
 
 export interface FutureAppointment {
   id: string;
+  groupId: string | null;
   salonId: string;
   salonName?: string;
+  serviceId: string | null;
+  staffId: string | null;
   startAt: string;
   endAt: string;
   status: string;
   serviceName: string | null;
   staffName: string | null;
+  durationMin: number | null;
 }
 
 // ---------------------------------------------------------------- oauth urls (espelha o Kikin)

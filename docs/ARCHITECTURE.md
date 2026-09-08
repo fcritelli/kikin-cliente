@@ -53,9 +53,16 @@
   staff,slots,book}` via `KIKIN_PUBLIC_URL`) e `GET /booking/salons` (catálogo p/ "Agendar novo").
   O Kikin continua dono da agenda/catálogo; o portal reusa o mesmo contrato do `/agendar` antigo.
 - `kikin/` — cliente HMAC da API interna do Kikin (ADR-002): `/internal/client-portal` com
-  `GET /salons`, `GET /clients/search` (hash_phone global), `GET /appointments` — implementados no
-  backend do Kikin (middleware `requireClientPortalService`). Todos os salões participam; controle
-  "salão tem/não tem portal" fica para o kikin-admin (decisão de produto, fase futura).
+  `GET /salons`, `GET /clients/search` (hash_phone global), `GET /appointments` e os POSTs
+  `/cancel` e `/reschedule` — implementados no backend do Kikin (middleware
+  `requireClientPortalService`). Todos os salões participam; controle "salão tem/não tem portal"
+  fica para o kikin-admin (decisão de produto, fase futura).
+- Política da área do cliente (cancelar/remarcar) vive **no Kikin**: janela de cancelamento (default
+  6h, por salão via `settings.clientPortal`) + limite suave móvel (default 3 eventos — cancelamentos
+  do cliente com nota `[portal]` + no-shows — em 30 dias); erros tipados
+  (`CANCELLATION_WINDOW_CLOSED`, `ABUSE_LIMIT_REACHED`) repassados pelo gateway à UI.
+  Remarcação = **troca atômica**: cria o novo grupo de horários e só então cancela o antigo, tudo
+  numa transação; a UI pede intenção explícita antes de mostrar o seletor de novo horário.
 - Regras de negócio do social:
   1. E-mail do provedor já existe no portal → **vincula** `google_id`/`microsoft_id` (se for o
      primeiro acesso social), marca e-mail verificado e **entra direto** (`SUCCESS`).

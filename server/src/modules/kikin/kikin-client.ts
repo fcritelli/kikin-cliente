@@ -133,9 +133,10 @@ export class KikinPortalClient {
     if (!res.ok) {
       const code = data?.code || `HTTP_${res.status}`;
       const message = data?.error || data?.message || `Kikin interno respondeu ${res.status}`;
-      const error = new Error(message) as Error & { status?: number; code?: string };
+      const error = new Error(message) as Error & { status?: number; code?: string; detail?: any };
       error.status = res.status;
       error.code = code;
+      if (data?.detail) error.detail = data.detail;
       throw error;
     }
     return data;
@@ -179,20 +180,26 @@ export class KikinPortalClient {
     });
   }
 
-  cancel(input: { salonId: string; appointmentId: string }) {
+  cancel(input: { salonId: string; appointmentId: string; clientId: string }) {
     return this.request({
       method: "POST",
       path: "/cancel",
-      body: { appointmentId: input.appointmentId },
+      body: { salonId: input.salonId, appointmentId: input.appointmentId, clientId: input.clientId },
       scope: { salonIds: [input.salonId] },
     });
   }
 
-  reschedule(input: { salonId: string; body: unknown }) {
+  reschedule(input: { salonId: string; appointmentId: string; clientId: string; staffId?: string | null; startAt: string }) {
     return this.request({
       method: "POST",
       path: "/reschedule",
-      body: { ...(input.body as object), salonId: input.salonId },
+      body: {
+        salonId: input.salonId,
+        appointmentId: input.appointmentId,
+        clientId: input.clientId,
+        staffId: input.staffId || null,
+        startAt: input.startAt,
+      },
       scope: { salonIds: [input.salonId] },
     });
   }

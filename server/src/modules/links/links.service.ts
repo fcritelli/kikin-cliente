@@ -38,13 +38,17 @@ export interface EstablishmentLink {
 
 export interface FutureAppointment {
   id: string;
+  groupId: string | null;
   salonId: string;
   salonName?: string;
+  serviceId: string | null;
+  staffId: string | null;
   startAt: string;
   endAt: string;
   status: string;
   serviceName: string | null;
   staffName: string | null;
+  durationMin: number | null;
 }
 
 function newKikin(): KikinPortalClient {
@@ -176,13 +180,17 @@ export async function listFutureAppointments(accountId: string): Promise<FutureA
       for (const a of items) {
         all.push({
           id: String(a.id),
+          groupId: a.groupId ? String(a.groupId) : null,
           salonId: link.salonId,
+          serviceId: a.serviceId ? String(a.serviceId) : null,
+          staffId: a.staffId ? String(a.staffId) : null,
           salonName: link.salonName,
           startAt: String(a.startAt),
           endAt: a.endAt ? String(a.endAt) : "",
           status: String(a.status || ""),
           serviceName: a.serviceName ? String(a.serviceName) : null,
           staffName: a.staffName ? String(a.staffName) : null,
+          durationMin: a.durationMin != null ? Number(a.durationMin) : null,
         });
       }
     } catch (e: any) {
@@ -217,5 +225,45 @@ export async function autoLinkFromBooking(input: {
     salonId: input.salonId,
     phone: input.phone,
     kikinClientId: candidate.clientId,
+  });
+}
+
+/** Vínculo ativo da conta no salão (garante que a ação é de um client vinculado). */
+async function requireLink(accountId: string, salonId: string): Promise<EstablishmentLink> {
+  const links = await listLinks(accountId);
+  const link = links.find((l) => l.salonId === salonId);
+  if (!link) throw err(403, "SALON_NOT_LINKED", "Você não tem vínculo com este estabelecimento.");
+  return link;
+}
+
+/** Cancela o GRUPO do agendamento no Kikin (janela + limite validadas lá). */
+export async function cancelAppointment(input: {
+  accountId: string;
+  salonId: string;
+  appointmentId: string;
+}): Promise<any> {
+  const link = await requireLink(input.accountId, input.salonId);
+  return newKikin().cancel({
+    salonId: input.salonId,
+    appointmentId: input.appointmentId,
+    clientId: link.kikinClientId,
+  });
+}
+
+/** Remarca: troca atômica no Kikin (novo grupo criado → grupo antigo cancelado). */
+export async function rescheduleAppointment(input: {
+  accountId: string;
+  salonId: string;
+  appointmentId: string;
+  staffId?: string | null;
+  startAt: string;
+}): Promise<any> {
+  const link = await requireLink(input.accountId, input.salonId);
+  return newKikin().reschedule({
+    salonId: input.salonId,
+    appointmentId: input.appointmentId,
+    clientId: link.kikinClientId,
+    staffId: input.staffId || null,
+    startAt: input.startAt,
   });
 }

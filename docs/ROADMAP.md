@@ -35,7 +35,11 @@
   confirmar. Convidado continua podendo agendar sem conta.
 - [x] Auto-vínculo pós-booking: conta logada agenda e o client daquele salão é vinculado sozinho
   (`/links/auto`); convidado que cria a conta com o mesmo telefone entra com o salão já vinculado.
-- [ ] Cancelar (com confirmação) e remarcar (regra de janela simples).
+- [x] Cancelar e remarcar pela área do cliente com regra justa (no Kikin, fonte da verdade):
+  janela de 6h antes do início (por salão em `settings.clientPortal.cancelWindowHours`); remarcar é
+  troca atômica (novo horário reservado → antigo só então cancelado), com passo explícito de
+  intenção antes de escolher o novo horário; limite suave móvel (3 cancelamentos-no-shows em 30
+  dias) bloqueia agendar/cancelar online com aviso claro, sem multas.
 **LGPD/UX**
 - Consentimento no cadastro; "Meus dados" (exportar/excluir conta).
 - Mensagens de confirmação por e-mail (e WhatsApp em fase posterior).

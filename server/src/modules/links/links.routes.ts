@@ -21,6 +21,56 @@ const autoLinkSchema = z.object({
   phone: z.string().min(8, "Informe seu telefone").max(20),
 });
 
+const cancelSchema = z.object({
+  salonId: z.string().uuid("Estabelecimento inválido"),
+  appointmentId: z.string().uuid("Agendamento inválido"),
+});
+
+const rescheduleSchema = z.object({
+  salonId: z.string().uuid("Estabelecimento inválido"),
+  appointmentId: z.string().uuid("Agendamento inválido"),
+  staffId: z.string().uuid().nullable().optional(),
+  startAt: z.string().min(1, "Horário obrigatório"),
+});
+
+// POST /api/v1/links/me/appointments/cancel — cancela o grupo (política no Kikin)
+router.post("/me/appointments/cancel", requireAuth, perUserLimiter, async (req, res) => {
+  try {
+    const parsed = cancelSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
+    }
+    const accountId = (req as any).account.accountId;
+    const result = await links.cancelAppointment({ accountId, ...parsed.data });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({
+      code: err.code || "INTERNAL",
+      error: err.message,
+      ...(err.detail ? { detail: err.detail } : {}),
+    });
+  }
+});
+
+// POST /api/v1/links/me/appointments/reschedule — troca atômica no Kikin
+router.post("/me/appointments/reschedule", requireAuth, perUserLimiter, async (req, res) => {
+  try {
+    const parsed = rescheduleSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
+    }
+    const accountId = (req as any).account.accountId;
+    const result = await links.rescheduleAppointment({ accountId, ...parsed.data });
+    return res.status(201).json(result);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({
+      code: err.code || "INTERNAL",
+      error: err.message,
+      ...(err.detail ? { detail: err.detail } : {}),
+    });
+  }
+});
+
 // GET /api/v1/links/me — vínculos da conta
 router.get("/me", requireAuth, perUserLimiter, async (req, res) => {
   try {
