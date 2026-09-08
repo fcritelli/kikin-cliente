@@ -1,0 +1,331 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  api,
+  ApiError,
+  type BookingSalonMeta,
+  type BookingService,
+  type BookingSlot,
+  type BookingStaff,
+} from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { Label } from "@/components/ui/Label";
+import { cn } from "@/lib/utils";
+
+type Step = "servicos" | "profissionais" | "horario" | "dados" | "feito";
+
+const fmtBRL = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+
+function nextDays(count: number): string[] {
+  const out: string[] = [];
+  const base = new Date();
+  base.setDate(base.getDate() + 1);
+  base.setHours(0, 0, 0, 0);
+  for (let i = 0; i < count; i++) {
+    const d = new Date(base);
+    d.setDate(base.getDate() + i);
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+function fmtWhen(iso: string): string {
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
+  });
+}
+
+interface BookingModalProps {
+  salon: BookingSalonMeta;
+  /** quando a conta já tem vínculo: agenda direto no client (sem telefone) */
+  linkedClient?: { clientId: string } | null;
+  onClose: () => void;
+  onSuccess: (info: { result: any; phone: string; whatsappOptIn: boolean }) => void;
+}
+
+/**
+ * Fluxo de agendamento do portal (único método): serviços → profissional →
+ * dia/horário reais → dados (telefone = WhatsApp + opt-in) → confirmar.
+ * Roda DENTRO da conta do cliente (modal), sempre para um estabelecimento já escolhido.
+ */
+export function BookingModal({ salon, linkedClient, onClose, onSuccess }: BookingModalProps) {
+  const { account } = useAuth();
+
+  const [services, setServices] = useState<BookingService[]>([]);
+  const [staff, setStaff] = useState<BookingStaff[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [step, setStep] = useState<Step>("servicos");
+  const [selectedServices, setSelectedServices] = useState<BookingService[]>([]);
+  const [staffId, setStaffId] = useState<string | null>(null);
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [slots, setSlots] = useState<BookingSlot[]>([]);
+  const [clientName, setClientName] = useState(account?.fullName || "");
+  const [clientPhone, setClientPhone] = useState("");
+  const [whatsappOptIn, setWhatsappOptIn] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // shape unificada do retorno (public proxy ou interno por client)
+  const [done, setDone] = useState<{ appointments: { appointment_id: string; service_name: string; start_at: string }[]; staff_name?: string } | null>(null);
+  const notified = useRef(false);
+
+  const serviceIds = useMemo(() => selectedServices.map((s) => s.id), [selectedServices]);
+  const slug = salon.slug;
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const svc = await api.bookingServices(slug);
+        setServices(svc);
+      } catch (err) {
+        setLoadError(err instanceof ApiError ? err.message : "Não foi possível carregar os serviços.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [slug]);
+
+  const toggleService = (svc: BookingService) => {
+    setSelectedServices((prev) => (prev.some((s) => s.id === svc.id) ? prev.filter((s) => s.id !== svc.id) : [...prev, svc]));
+    setStep("profissionais");
+  };
+
+  useEffect(() => {
+    if (serviceIds.length === 0) return;
+    setStaffId(null);
+    setTime("");
+    api
+      .bookingStaff(slug, serviceIds)
+      .then(setStaff)
+      .catch(() => setStaff([]));
+  }, [serviceIds.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!date || serviceIds.length === 0) return;
+    api
+      .bookingSlots(slug, { date, serviceIds, staffId })
+      .then(setSlots)
+      .catch(() => setSlots([]));
+  }, [date, serviceIds.join(","), staffId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_min || 0), 0);
+  const totalPrice = selectedServices.reduce((acc, s) => acc + (s.price || 0), 0);
+
+  const submit = async () => {
+    if (!date || !time) return setError("Escolha dia e horário.");
+    const phoneDigits = clientPhone.replace(/\D/g, "");
+    if (!linkedClient) {
+      if (clientName.trim().length < 2) return setError("Informe seu nome.");
+      if (phoneDigits.length < 10) return setError("Informe um WhatsApp com DDD válido.");
+    }
+    setError(null);
+    setBusy(true);
+    const [y, m, d] = date.split("-").map(Number);
+    const [hh, mm] = time.split(":").map(Number);
+    const startAt = new Date(y, m - 1, d, hh, mm).toISOString();
+    try {
+      const raw: any = linkedClient
+        ? await api.bookForLink({ salonId: salon.id, serviceIds, staffId, startAt, whatsappOptIn })
+        : await api.bookingBook(slug, {
+            serviceIds,
+            staffId,
+            startAt,
+            clientName: clientName.trim(),
+            clientPhone: phoneDigits,
+            whatsappOptIn,
+          });
+      const items: any[] = raw?.created || raw?.appointments || [];
+      const result = { appointments: items, staff_name: raw?.staff_name };
+      setDone(result);
+      setStep("feito");
+      if (!notified.current) {
+        notified.current = true;
+        onSuccess({ result, phone: linkedClient ? "" : phoneDigits, whatsappOptIn });
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Não foi possível confirmar o horário.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-6">
+      <div className="w-full sm:max-w-xl max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-6 sm:p-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-700">Agendar no seu estabelecimento</p>
+            <h3 className="text-lg font-black uppercase tracking-tight">{salon.name}</h3>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full border border-black/15 px-3 py-1 text-xs font-bold hover:bg-black/5 cursor-pointer">
+            {done ? "Fechar" : "Sair"}
+          </button>
+        </div>
+
+        {loading ? (
+          <p className="mt-8 text-sm text-black/50">Carregando…</p>
+        ) : loadError ? (
+          <p className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{loadError}</p>
+        ) : done ? (
+          <div className="mt-8 text-center">
+            <div className="mx-auto h-14 w-14 rounded-full bg-green-100 flex items-center justify-center text-2xl">✅</div>
+            <h4 className="mt-4 text-xl font-black uppercase tracking-tight">Horário garantido!</h4>
+            <div className="mt-5 rounded-xl border border-black/10 bg-black/[0.02] px-5 py-4 text-left space-y-1">
+              {done.appointments.map((a) => (
+                <p key={a.appointment_id} className="text-sm">
+                  <b>{a.service_name}</b> · {fmtWhen(a.start_at)}
+                </p>
+              ))}
+              <p className="text-xs text-black/50">Com {done.staff_name}</p>
+            </div>
+            <Button className="mt-6 w-full" onClick={onClose}>
+              Ver meus agendamentos
+            </Button>
+          </div>
+        ) : (
+          <>
+            {error && (
+              <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</p>
+            )}
+
+            {step === "servicos" && (
+              <>
+                <p className="mt-5 text-xs font-bold uppercase tracking-[0.2em] text-black/50">1 · Escolha o serviço</p>
+                <div className="mt-3 grid gap-2.5">
+                  {services.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => toggleService(s)}
+                      className={cn(
+                        "flex items-center justify-between rounded-xl border px-4 py-3 text-left cursor-pointer",
+                        selectedServices.some((x) => x.id === s.id) ? "border-blue-600 bg-blue-50" : "border-black/10 hover:border-black/30"
+                      )}
+                    >
+                      <div>
+                        <p className="text-sm font-bold">{s.name}</p>
+                        <p className="text-xs text-black/50">{s.duration_min} min</p>
+                      </div>
+                      <p className="text-sm font-black">{fmtBRL(s.price)}</p>
+                    </button>
+                  ))}
+                </div>
+                {selectedServices.length > 0 && (
+                  <div className="mt-6 flex items-center justify-between rounded-xl border border-black/10 px-4 py-3">
+                    <p className="text-sm text-black/60">{selectedServices.length} serviço(s) · {totalDuration} min</p>
+                    <Button size="sm" onClick={() => setStep("profissionais")}>Continuar →</Button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {step === "profissionais" && (
+              <>
+                <p className="mt-5 text-xs font-bold uppercase tracking-[0.2em] text-black/50">2 · Profissional (opcional)</p>
+                <div className="mt-3 grid gap-2">
+                  <button type="button" onClick={() => { setStaffId(null); setStep("horario"); }}
+                    className={cn("rounded-xl border px-4 py-3 text-left text-sm font-semibold cursor-pointer",
+                      staffId === null ? "border-blue-600 bg-blue-50" : "border-black/10 hover:border-black/30")}>
+                    Sem preferência
+                  </button>
+                  {staff.map((p) => (
+                    <button key={p.id} type="button" onClick={() => { setStaffId(p.id); setStep("horario"); }}
+                      className={cn("rounded-xl border px-4 py-3 text-left text-sm font-bold cursor-pointer",
+                        staffId === p.id ? "border-blue-600 bg-blue-50" : "border-black/10 hover:border-black/30")}>
+                      {p.name}
+                    </button>
+                  ))}
+                  {staff.length === 0 && <p className="text-sm text-black/50">Nenhum profissional disponível para os serviços escolhidos.</p>}
+                </div>
+              </>
+            )}
+
+            {step === "horario" && (
+              <>
+                <p className="mt-5 text-xs font-bold uppercase tracking-[0.2em] text-black/50">3 · Dia e horário</p>
+                <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
+                  {nextDays(14).map((d) => {
+                    const [yy, mm, dd] = d.split("-").map(Number);
+                    const label = new Date(yy, mm - 1, dd).toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" });
+                    return (
+                      <button key={d} type="button" onClick={() => { setDate(d); setTime(""); }}
+                        className={cn("shrink-0 rounded-xl border px-3 py-2 text-xs font-bold uppercase cursor-pointer",
+                          date === d ? "border-blue-600 bg-blue-600 text-white" : "border-black/15 hover:border-black/40")}>
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {date && (slots.length === 0 ? (
+                  <p className="mt-4 text-sm text-black/50">Nenhum horário livre neste dia.</p>
+                ) : (
+                  <div className="mt-4 grid grid-cols-4 sm:grid-cols-5 gap-2">
+                    {slots.map((s) => {
+                      const available = !staffId || s.available_staff.includes(staffId);
+                      return (
+                        <button key={s.start_at} type="button" disabled={!available} onClick={() => { setTime(s.start_at); setStep("dados"); }}
+                          className={cn("rounded-lg border py-2 text-sm font-bold cursor-pointer",
+                            !available ? "opacity-30 cursor-not-allowed" : time === s.start_at ? "border-blue-600 bg-blue-600 text-white" : "border-black/15 hover:border-blue-600")}>
+                          {s.start_at}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </>
+            )}
+
+            {step === "dados" && (
+              <>
+                <p className="mt-5 text-xs font-bold uppercase tracking-[0.2em] text-black/50">4 · Seus dados</p>
+                <div className="mt-3 rounded-xl border border-black/10 bg-black/[0.02] px-4 py-3 text-sm">
+                  <p className="font-bold">{selectedServices.map((s) => s.name).join(" + ")}</p>
+                  <p className="text-black/60">
+                    {new Date(`${date}T00:00:00`).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })} às {time}
+                    {" · "}{staff.find((p) => p.id === staffId)?.name || "sem preferência"}
+                  </p>
+                </div>
+                <div className="mt-5 grid gap-4">
+                  {!linkedClient && (
+                    <div>
+                      <Label htmlFor="bm-name">Nome</Label>
+                      <Input id="bm-name" autoComplete="name" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Seu nome" />
+                    </div>
+                  )}
+                  {!linkedClient ? (
+                    <div>
+                      <Label htmlFor="bm-phone">Seu WhatsApp (com DDD)</Label>
+                      <Input id="bm-phone" type="tel" inputMode="tel" autoComplete="tel" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} placeholder="(11) 98765-4321" />
+                    </div>
+                  ) : (
+                    <p className="rounded-xl bg-black/[0.03] px-4 py-3 text-xs text-black/60">
+                      Você já está cadastrado neste estabelecimento — confirmamos o horário no seu cadastro vinculado.
+                    </p>
+                  )}
+                  <label className="flex items-start gap-2.5 text-xs leading-relaxed text-black/60 cursor-pointer">
+                    <input type="checkbox" checked={whatsappOptIn} onChange={(e) => setWhatsappOptIn(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600" />
+                    <span>Confirmo que este número é meu WhatsApp e aceito receber a confirmação do agendamento e lembretes por ele.</span>
+                  </label>
+                  <div className="flex items-center justify-between rounded-xl border border-black/10 px-4 py-3">
+                    <p className="text-sm font-bold">Total · {totalDuration} min</p>
+                    <p className="text-sm font-black">{fmtBRL(totalPrice)}</p>
+                  </div>
+                  <Button type="button" className="w-full" disabled={busy} onClick={submit}>
+                    {busy ? "Confirmando…" : "Confirmar horário"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

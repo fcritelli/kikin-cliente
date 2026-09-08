@@ -285,3 +285,29 @@ export async function rescheduleAppointment(input: {
     startAt: input.startAt,
   });
 }
+
+/** Agenda direto para o client vinculado (sem redigitar telefone). */
+export async function bookForLinkedClient(input: {
+  accountId: string;
+  salonId: string;
+  serviceIds: string[];
+  staffId?: string | null;
+  startAt: string;
+  whatsappOptIn?: boolean;
+}): Promise<any> {
+  const link = await requireLink(input.accountId, input.salonId);
+  if (input.whatsappOptIn) {
+    await query(
+      `UPDATE account_establishment_links SET whatsapp_optin_at = coalesce(whatsapp_optin_at, now()), updated_at = now()
+       WHERE id = $1`,
+      [link.id]
+    );
+  }
+  return newKikin().bookForClient({
+    salonId: input.salonId,
+    clientId: link.kikinClientId,
+    serviceIds: input.serviceIds,
+    staffId: input.staffId || null,
+    startAt: input.startAt,
+  });
+}

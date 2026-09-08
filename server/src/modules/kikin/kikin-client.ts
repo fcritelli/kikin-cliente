@@ -171,11 +171,18 @@ export class KikinPortalClient {
     });
   }
 
-  book(input: { salonId: string; body: unknown }) {
+  /** Agenda para o client vinculado (portal único método — sem telefone). */
+  bookForClient(input: { salonId: string; clientId: string; serviceIds: string[]; staffId?: string | null; startAt: string }) {
     return this.request({
       method: "POST",
       path: "/book",
-      body: { ...(input.body as object), salonId: input.salonId },
+      body: {
+        salonId: input.salonId,
+        clientId: input.clientId,
+        serviceIds: input.serviceIds,
+        staffId: input.staffId || null,
+        startAt: input.startAt,
+      },
       scope: { salonIds: [input.salonId] },
     });
   }

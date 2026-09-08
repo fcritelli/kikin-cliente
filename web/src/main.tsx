@@ -7,7 +7,6 @@ import { Home } from "./pages/Home";
 import { AuthPage } from "./pages/AuthPage";
 import { OAuthCallback } from "./pages/OAuthCallback";
 import { AccountPage } from "./pages/AccountPage";
-import { AgendarPage } from "./pages/AgendarPage";
 import { LegalPage } from "./pages/LegalPage";
 
 function ProtectedAccount() {
@@ -26,7 +25,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/login" element={<AuthPage key="login" mode="login" />} />
           <Route path="/cadastro" element={<AuthPage key="cadastro" mode="signup" />} />
           <Route path="/auth" element={<OAuthCallback />} />
-          <Route path="/agendar/:slug" element={<AgendarPage />} />
           <Route path="/conta" element={<ProtectedAccount />} />
           <Route path="/termos" element={<LegalPage doc="termos" />} />
           <Route path="/privacidade" element={<LegalPage doc="privacidade" />} />

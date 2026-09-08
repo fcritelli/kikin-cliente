@@ -144,6 +144,11 @@ export const api = {
   autoLink: (body: { salonId: string; phone: string; whatsappOptIn?: boolean }) =>
     request<{ link: EstablishmentLink | null }>("/links/auto", { method: "POST", body }),
   myAppointments: () => request<{ appointments: FutureAppointment[] }>("/links/me/appointments"),
+  bookForLink: (body: { salonId: string; serviceIds: string[]; staffId?: string | null; startAt: string; whatsappOptIn?: boolean }) =>
+    request<{ success: boolean; created: { appointment_id: string; service_name: string; start_at: string; end_at: string }[] }>(
+      "/links/book",
+      { method: "POST", body }
+    ),
   cancelAppointment: (body: { salonId: string; appointmentId: string }) =>
     request<{ success: boolean; canceledAppointments: string[] }>("/links/me/appointments/cancel", { method: "POST", body }),
   rescheduleAppointment: (body: { salonId: string; appointmentId: string; staffId?: string | null; startAt: string }) =>

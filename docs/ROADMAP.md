@@ -27,17 +27,18 @@
   `account_establishment_links` (LGPD: só hash + máscara; dedupe: mesmo telefone não vincula a
   duas contas).
 - [x] "Meus próximos horários" listando agendamentos futuros do(s) vínculo(s).
-- [x] **Modo por convite (estabelecimento-first)**: o portal não lista outros estabelecimentos;
-  o cliente entra pela página do salão (`/agendar/:slug`), agenda e o vínculo entra na conta.
+- [x] **Portal = único método de agendamento**: sem página pública por slug e sem lista global.
+  O cliente agenda dentro do `/conta` (no estabelecimento vinculado; na 1ª vez escolhe o
+  estabelecimento, que vira o vínculo). Convidado sem conta não agenda.
 - [x] **Telefone = WhatsApp**: opt-in de consentimento no vínculo (`whatsapp_optin_at`) capturado
   no booking/claim; "falar com o salão" via wa.me já ativo; envio/OTP plugável (ver docs/WHATSAPP.md).
 - [ ] Fase futura: telefone também por CPF; vínculo multi-estabelecimento já suportado pelo schema.
 **Agendamentos**
 - [x] Meus agendamentos futuros (do(s) estabelecimento(s) vinculados).
-- [x] Agendar no portal pela página do salão: `/agendar/:slug` (link que o salão passa) reusa o
-  booking do Kikin via proxy do gateway — serviços → profissionais → data/horário reais → dados
-  (telefone = WhatsApp, com opt-in) → confirmar. Convidado continua podendo agendar sem conta;
-  o /conta não lista outros estabelecimentos (modo por convite).
+- [x] Agendar dentro do /conta (modal): serviços → profissional → data/horário reais → confirmar.
+  Vinculado → agenda direto no cadastro do client (sem redigitar telefone; POST interno /book).
+  1ª vez (sem vínculo) → escolhe o estabelecimento e agenda como novo client (telefone = WhatsApp
+  + opt-in), e o vínculo é criado automaticamente. Dados do agendamento via proxy público do Kikin.
 - [x] Auto-vínculo pós-booking: conta logada agenda e o client daquele salão é vinculado sozinho
   (`/links/auto`); convidado que cria a conta com o mesmo telefone entra com o salão já vinculado.
 - [x] Cancelar e remarcar pela área do cliente com regra justa (no Kikin, fonte da verdade):

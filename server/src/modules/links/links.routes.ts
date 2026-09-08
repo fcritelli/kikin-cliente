@@ -35,6 +35,29 @@ const rescheduleSchema = z.object({
   startAt: z.string().min(1, "Horário obrigatório"),
 });
 
+const bookSchema = z.object({
+  salonId: z.string().uuid("Estabelecimento inválido"),
+  serviceIds: z.array(z.string().uuid("Serviço inválido")).min(1, "Escolha ao menos um serviço"),
+  staffId: z.string().uuid().nullable().optional(),
+  startAt: z.string().min(1, "Horário obrigatório"),
+  whatsappOptIn: z.boolean().optional(),
+});
+
+// POST /api/v1/links/book — agenda no client vinculado (sem telefone; vínculo é a identidade)
+router.post("/book", requireAuth, perUserLimiter, async (req, res) => {
+  try {
+    const parsed = bookSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
+    }
+    const accountId = (req as any).account.accountId;
+    const result = await links.bookForLinkedClient({ accountId, ...parsed.data });
+    return res.status(201).json(result);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
+});
+
 // POST /api/v1/links/me/appointments/cancel — cancela o grupo (política no Kikin)
 router.post("/me/appointments/cancel", requireAuth, perUserLimiter, async (req, res) => {
   try {

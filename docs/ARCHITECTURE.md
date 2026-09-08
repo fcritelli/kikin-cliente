@@ -63,10 +63,10 @@
   (`CANCELLATION_WINDOW_CLOSED`, `ABUSE_LIMIT_REACHED`) repassados pelo gateway à UI.
   Remarcação = **troca atômica**: cria o novo grupo de horários e só então cancela o antigo, tudo
   numa transação; a UI pede intenção explícita antes de mostrar o seletor de novo horário.
-- Modo **por convite**: o portal não lista outros estabelecimentos — entrada só pela página do salão
-  (`/agendar/:slug`); `/conta` mostra apenas os vínculos. Telefone = WhatsApp: opt-in
-  (`account_establishment_links.whatsapp_optin_at`) + wa.me do salão; envio/OTP plugáveis
-  (`docs/WHATSAPP.md`).
+- **Portal = único método**: sem página pública por slug; booking acontece no `/conta` (no
+  estabelecimento vinculado; 1ª escolha vira vínculo). `/conta` mostra apenas os vínculos.
+  Telefone = WhatsApp: opt-in (`account_establishment_links.whatsapp_optin_at`) + wa.me do salão;
+  envio/OTP plugáveis (`docs/WHATSAPP.md`).
 - Regras de negócio do social:
   1. E-mail do provedor já existe no portal → **vincula** `google_id`/`microsoft_id` (se for o
      primeiro acesso social), marca e-mail verificado e **entra direto** (`SUCCESS`).
@@ -75,18 +75,19 @@
 
 ## Web (web/src)
 - Rotas: `/` (Home), `/login`, `/cadastro`, `/auth` (callback OAuth + mini passo NEED_SETUP),
-  `/agendar/:slug` (booking — o link que o salão passa), `/conta` (área do cliente pós-login,
-  protegida), `/termos` e `/privacidade`.
+  `/conta` (área do cliente — onde se agenda, protegida), `/termos` e `/privacidade`.
+  Não há página pública por slug.
 - `contexts/AuthContext.tsx` valida a sessão salva via `/accounts/me` no boot e tenta `refresh`
   quando o access token expirou; `lib/api.ts` centraliza o cliente HTTP e os helpers de OAuth.
-- `/agendar/:slug`: serviços → profissional → data/horário (disponibilidade real do Kikin) → dados
-  → confirmar. Logado → vínculo automático na hora; convidado → "criar conta e acompanhar" guarda o
-  contexto `{salonId, phone}` (sessionStorage) para o `/conta` vincular sozinho após o cadastro.
+- `/conta` → "Agendar": modal com serviços → profissional → data/horário reais → confirmar.
+  Vinculado usa o cadastro do client (POST interno /book, sem telefone); sem vínculo escolhe o
+  estabelecimento uma vez, agenda com telefone=WhatsApp+opt-in e o auto-vínculo (`/links/auto`)
+  é criado. Agendar exige conta (convidado não agenda).
 
-## Agendar novo
-O portal **proxy** os endpoints públicos do booking do Kikin (mesmo contrato do `/agendar` antigo),
-com a área logada pré-preenchendo o fluxo; o vínculo com o client é consequência do agendamento.
-Cancelar/remarcar usam endpoints de sessão (autenticados) — fase seguinte.
+## Agendar
+Fluxo dentro do `/conta` (modal) servido pelo proxy do booking do Kikin (serviços/profissionais/
+horários públicos) + endpoint interno `POST /book` do client-portal para quem já é vinculado
+(agenda direto no client, sem telefone). Cancelar/remarcar seguem a política da área do cliente.
 
 ## Fases
 Ver `ROADMAP.md`.

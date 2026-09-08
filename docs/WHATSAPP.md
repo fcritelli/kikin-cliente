@@ -14,8 +14,9 @@ Status: design aceito na sessão de produto (sem provedor conectado ainda).
 - `account_establishment_links.whatsapp_optin_at` (timestamptz): registrado quando o cliente
   confirma que o número é o WhatsApp dele e autoriza confirmações/lembretes.
 - Captura nos pontos de primeiro contato:
-  - **Booking** (`/agendar/:slug`, passo "Seus dados"): checkbox *"Confirmo que este número é meu
-    WhatsApp e aceito receber a confirmação do agendamento e lembretes por ele."*
+  - **Booking** (fluxo "Agendar" dentro do `/conta`): checkbox *"Confirmo que este número é meu
+    WhatsApp e aceito receber a confirmação do agendamento e lembretes por ele."* (cliente sem
+    vínculo redigita o número; vinculado só confirma o opt-in — o número já é o do vínculo).
   - **Claim** (`/conta` → "Encontre seus agendamentos"): mesmo checkbox.
   - Logado: o opt-in é repassado ao auto-vínculo (`/links/auto`); convidado → contexto em
     sessionStorage é levado ao cadastro → auto-vínculo grava o opt-in.

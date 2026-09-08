@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
+import { BookingModal } from "@/components/BookingModal";
 import {
   api,
   ApiError,
@@ -13,13 +14,21 @@ import {
   type EstablishmentLink,
   type FutureAppointment,
 } from "@/lib/api";
-import { BOOKING_CONTEXT_KEY } from "./AgendarPage";
 import { cn } from "@/lib/utils";
 
-type ModalState =
+type ActionModal =
   | { kind: "cancel"; appointment: FutureAppointment }
   | { kind: "intent"; appointment: FutureAppointment; group: FutureAppointment[]; servicesLabel: string; totalMin: number }
   | { kind: "slots"; appointment: FutureAppointment; group: FutureAppointment[]; servicesLabel: string };
+
+function waLinkFor(phone?: string | null): string | null {
+  if (!phone) return null;
+  let d = phone.replace(/\D/g, "");
+  if (!/^55\d{10,13}$/.test(d)) {
+    if (d.length === 10 || d.length === 11) d = "55" + d;
+  }
+  return d && d.length >= 12 ? `https://wa.me/${d}` : null;
+}
 
 function nextDays(count: number): string[] {
   const out: string[] = [];
@@ -34,15 +43,6 @@ function nextDays(count: number): string[] {
   return out;
 }
 
-function waLinkFor(phone?: string | null): string | null {
-  if (!phone) return null;
-  let d = phone.replace(/\D/g, "");
-  if (!/^55\d{10,13}$/.test(d)) {
-    if (d.length === 10 || d.length === 11) d = "55" + d;
-  }
-  return d && d.length >= 12 ? `https://wa.me/${d}` : null;
-}
-
 const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleString("pt-BR", {
     weekday: "short",
@@ -54,8 +54,10 @@ const fmtWhen = (iso: string) =>
   });
 
 /**
- * Área do cliente: vínculo (claim), agendar novo e cancelar/remarcar com a regra
- * da área do cliente (janela de 6h + limite suave; aplicadas no Kikin, fonte da verdade).
+ * Área do cliente — o portal é o ÚNICO método de agendamento:
+ * “Agendar” roda aqui dentro (serviços → profissional → horário → confirmar) para o
+ * estabelecimento vinculado; na 1ª vez (sem vínculo) o cliente escolhe o estabelecimento,
+ * que vira o vínculo. Não há página pública por slug e não há lista global permanente.
  */
 export function AccountPage() {
   const { account, logout } = useAuth();
@@ -68,17 +70,19 @@ export function AccountPage() {
   const [links, setLinks] = useState<EstablishmentLink[]>([]);
   const [appointments, setAppointments] = useState<FutureAppointment[]>([]);
 
-  // ---- claim
+  // ---- claim (recuperar cadastros existentes por telefone)
   const [phone, setPhone] = useState("");
   const [claimOptIn, setClaimOptIn] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [candidates, setCandidates] = useState<ClientCandidate[] | null>(null);
 
-  // ---- agendar novo
-  const [bookSalons, setBookSalons] = useState<BookingSalonMeta[] | null>(null);
+  // ---- agendar (salões p/ escolha única + fluxo)
+  const [salons, setSalons] = useState<BookingSalonMeta[] | null>(null);
+  const [picker, setPicker] = useState<null | "linked" | "all">(null);
+  const [booking, setBooking] = useState<BookingSalonMeta | null>(null);
 
   // ---- cancelar/remarcar
-  const [modal, setModal] = useState<ModalState | null>(null);
+  const [modal, setModal] = useState<ActionModal | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [slotDate, setSlotDate] = useState("");
@@ -103,53 +107,50 @@ export function AccountPage() {
     refresh();
   }, [refresh]);
 
-  // Auto-vínculo silencioso vindo de um agendamento feito como convidado
-  useEffect(() => {
-    if (loading) return;
-    const raw = sessionStorage.getItem(BOOKING_CONTEXT_KEY);
-    if (!raw) return;
-    sessionStorage.removeItem(BOOKING_CONTEXT_KEY);
-    let ctx: { salonId?: string; phone?: string; whatsappOptIn?: boolean };
-    try {
-      ctx = JSON.parse(raw);
-    } catch {
-      return;
-    }
-    if (!ctx.salonId || !ctx.phone) return;
-    (async () => {
-      setClaiming(true);
-      try {
-        const res = await api.autoLink({ salonId: ctx.salonId!, phone: ctx.phone!, whatsappOptIn: ctx.whatsappOptIn });
-        if (res.link) {
-          setMessage("Seu agendamento foi vinculado à sua conta!");
-          await refresh();
-        }
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : "Erro ao vincular seu agendamento.");
-      } finally {
-        setClaiming(false);
-      }
-    })();
-  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const loadBookingSalons = async () => {
-    if (bookSalons) return;
+  const ensureSalons = useCallback(async (): Promise<BookingSalonMeta[]> => {
+    if (salons) return salons;
     try {
       const res = await api.bookingSalons();
-      setBookSalons(res.salons);
+      setSalons(res.salons);
+      return res.salons;
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Erro ao carregar estabelecimentos.");
+      return [];
     }
-  };
+  }, [salons]);
 
   const slugBySalon = useMemo(() => {
     const map: Record<string, string> = {};
-    for (const s of bookSalons || []) map[s.id] = s.slug;
+    for (const s of salons || []) map[s.id] = s.slug;
     return map;
-  }, [bookSalons]);
+  }, [salons]);
 
+  /** vínculos com meta do salão (para agendar no(s) salão(ões) da conta). */
+  const linkedMetas = useMemo(() => {
+    const metas: BookingSalonMeta[] = [];
+    for (const l of links) {
+      const m = (salons || []).find((s) => s.id === l.salonId);
+      if (m) metas.push(m);
+    }
+    return metas;
+  }, [links, salons]);
+
+  /** lista única por nome (1ª escolha). */
+  const uniqueSalons = useMemo(() => {
+    const seen = new Set<string>();
+    const out: BookingSalonMeta[] = [];
+    for (const s of salons || []) {
+      const k = s.name.trim().toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(s);
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }, [salons]);
+
+  // ---- claim
   const startClaim = async () => {
-    if (!phone || phone.replace(/\D/g, "").length < 10) return setError("Informe um telefone com DDD válido.");
+    if (!phone || phone.replace(/\D/g, "").length < 10) return setError("Informe um telefone/WhatsApp com DDD válido.");
     setError(null);
     setMessage(null);
     setClaiming(true);
@@ -158,7 +159,7 @@ export function AccountPage() {
       const res = await api.claimClients({ phone });
       setCandidates(res.candidates);
       if (res.candidates.length === 0) {
-        setMessage("Nenhum cadastro encontrado com este telefone. Confira o número usado na reserva.");
+        setMessage("Nenhum cadastro encontrado com este telefone. Se é sua primeira vez, use 'Agendar agora'.");
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Erro ao buscar seus agendamentos.");
@@ -182,16 +183,41 @@ export function AccountPage() {
     }
   };
 
-  // ---- ações de agendamento
+  // ---- agendar
+  const openAgendar = async () => {
+    const list = await ensureSalons();
+    const linkedIds = new Set(links.map((l) => l.salonId));
+    const linked = list.filter((s) => linkedIds.has(s.id));
+    if (linked.length === 1) {
+      setBooking(linked[0]);
+    } else if (linked.length > 1) {
+      setPicker("linked");
+    } else {
+      setPicker("all");
+    }
+  };
 
-  /** agrupa os cards do MESMO grupo (multi-serviço vira um grupo único). */
+  const handleBooked = async (salon: BookingSalonMeta, phoneDigits: string, whatsappOptIn: boolean) => {
+    if (!links.some((l) => l.salonId === salon.id)) {
+      try {
+        await api.autoLink({ salonId: salon.id, phone: phoneDigits, whatsappOptIn });
+      } catch {
+        // vínculo segue pelo claim se falhar
+      }
+    }
+    setBooking(null);
+    setMessage("Horário confirmado! Ele já aparece em 'Meus próximos horários'.");
+    await refresh();
+  };
+
+  // ---- ações de agendamento
   const groupOf = (appointment: FutureAppointment): FutureAppointment[] => {
     const key = appointment.groupId || appointment.id;
     return appointments.filter((a) => a.salonId === appointment.salonId && (a.groupId || a.id) === key);
   };
 
   const askCancel = (appointment: FutureAppointment) => {
-    void loadBookingSalons();
+    void ensureSalons();
     setModalError(null);
     setModal({ kind: "cancel", appointment });
   };
@@ -222,7 +248,7 @@ export function AccountPage() {
 
   const startSlotPick = async () => {
     if (!modal || modal.kind !== "intent") return;
-    await loadBookingSalons();
+    await ensureSalons();
     setSlotDate("");
     setSlotTime("");
     setSlots([]);
@@ -237,7 +263,7 @@ export function AccountPage() {
     setSlots([]);
     const slug = slugBySalon[modal.appointment.salonId];
     if (!slug) {
-      setModalError("Estabelecimento sem agendamento online disponível.");
+      setModalError("Estabelecimento sem agendamento disponível.");
       return;
     }
     const serviceIds = modal.group.map((g) => g.serviceId).filter(Boolean) as string[];
@@ -280,9 +306,7 @@ export function AccountPage() {
     navigate("/", { replace: true });
   };
 
-  const modalSalonWa = modal
-    ? waLinkFor((bookSalons || []).find((s) => s.id === modal.appointment.salonId)?.phone)
-    : null;
+  const modalSalonWa = modal ? waLinkFor((salons || []).find((s) => s.id === modal.appointment.salonId)?.phone) : null;
 
   return (
     <div className="min-h-screen w-full flex flex-col bg-white text-black">
@@ -296,9 +320,7 @@ export function AccountPage() {
           </span>
         </a>
         <nav className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={handleLogout}>
-            Sair
-          </Button>
+          <Button variant="outline" size="sm" onClick={handleLogout}>Sair</Button>
         </nav>
       </header>
 
@@ -337,30 +359,39 @@ export function AccountPage() {
           <div className="mt-6 rounded-xl border border-green-600/30 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">{message}</div>
         )}
 
+        {!loading && (
+          /* ---- Agendar (portal = único método) ---- */
+          <section className="mt-8 rounded-2xl border border-blue-600/30 bg-gradient-to-r from-blue-50 to-white p-6">
+            <h2 className="text-lg font-black uppercase tracking-tight">Agendar</h2>
+            <p className="mt-1.5 text-sm text-black/60">
+              {links.length === 0
+                ? "Escolha o seu estabelecimento e veja os horários disponíveis para agendar."
+                : `Agende no seu estabelecimento: ${linkedMetas.map((m) => m.name).join(", ") || "carregando…"}`}
+            </p>
+            <Button className="mt-4" onClick={openAgendar}>Agendar agora</Button>
+          </section>
+        )}
+
         {loading ? (
           <p className="mt-10 text-sm text-black/50">Carregando…</p>
         ) : links.length === 0 ? (
-          /* ---- Primeiro acesso: vínculo (claim) ---- */
+          /* ---- 1ª vez sem vínculo: recuperar cadastros existentes (opcional) ---- */
           <section className="mt-8 rounded-2xl border border-black/10 bg-white p-6 sm:p-8 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.1)]">
-            <h2 className="text-lg font-black uppercase tracking-tight">Encontre seus agendamentos</h2>
+            <h2 className="text-lg font-black uppercase tracking-tight">Já tem agendamentos?</h2>
             <p className="mt-2 text-sm leading-relaxed text-black/60">
-              Já tem horário marcado em algum estabelecimento? Informe o telefone usado na reserva e
-              buscaremos seus cadastros em todos os estabelecimentos. Seu telefone fica protegido
-              (LGPD): só uma versão criptografada é usada na busca.
+              Se você já é cliente do estabelecimento, informe seu WhatsApp e recupere seus cadastros.
             </p>
             <div className="mt-6 grid gap-4">
               <div>
-                <Label htmlFor="claim-phone">Seu WhatsApp / telefone usado na reserva</Label>
+                <Label htmlFor="claim-phone">Seu WhatsApp (com DDD)</Label>
                 <Input id="claim-phone" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(11) 98765-4321" />
               </div>
               <label className="flex items-start gap-2.5 text-xs leading-relaxed text-black/60 cursor-pointer">
                 <input type="checkbox" checked={claimOptIn} onChange={(e) => setClaimOptIn(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600" />
-                <span>
-                  Confirmo que este número é meu WhatsApp e aceito receber confirmações e lembretes por ele.
-                </span>
+                <span>Confirmo que este número é meu WhatsApp e aceito receber confirmações e lembretes por ele.</span>
               </label>
-              <Button type="button" onClick={startClaim} disabled={claiming} className="w-full">
-                {claiming ? "Buscando…" : "Encontrar meus agendamentos"}
+              <Button type="button" variant="outline" onClick={startClaim} disabled={claiming} className="w-full">
+                {claiming ? "Buscando…" : "Recuperar meus agendamentos"}
               </Button>
             </div>
             {candidates && candidates.length > 0 && (
@@ -391,7 +422,7 @@ export function AccountPage() {
             {appointments.length === 0 ? (
               <div className="mt-5 rounded-xl border border-black/10 bg-black/[0.02] px-5 py-6 text-center">
                 <p className="text-sm font-bold text-black/70">Nenhum horário futuro por aqui.</p>
-                <p className="mt-1 text-xs text-black/50">Quando você agendar, ele aparecerá nesta lista.</p>
+                <p className="mt-1 text-xs text-black/50">Use “Agendar agora” para marcar no seu estabelecimento.</p>
               </div>
             ) : (
               <ul className="mt-5 grid gap-3">
@@ -406,12 +437,8 @@ export function AccountPage() {
                     <div className="flex items-center gap-3">
                       <p className="text-sm font-bold text-blue-700">{fmtWhen(a.startAt)}</p>
                       <div className="flex gap-2">
-                        <Button variant="outline" size="sm" onClick={() => askReschedule(a)}>
-                          Remarcar
-                        </Button>
-                        <Button variant="ghost" size="sm" className="!text-red-600 hover:!bg-red-50" onClick={() => askCancel(a)}>
-                          Cancelar
-                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => askReschedule(a)}>Remarcar</Button>
+                        <Button variant="ghost" size="sm" className="!text-red-600 hover:!bg-red-50" onClick={() => askCancel(a)}>Cancelar</Button>
                       </div>
                     </div>
                   </li>
@@ -422,7 +449,50 @@ export function AccountPage() {
         )}
       </main>
 
-      {/* ---- Modal de ações ---- */}
+      {/* ---- Picker de estabelecimento (1ª escolha ou vínculos múltiplos) ---- */}
+      {picker && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-6">
+          <div className="w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl bg-white p-6 sm:p-8">
+            <h3 className="text-lg font-black uppercase tracking-tight">
+              {picker === "linked" ? "Escolha o estabelecimento" : "Qual é o seu estabelecimento?"}
+            </h3>
+            <p className="mt-2 text-sm text-black/60">
+              {picker === "linked"
+                ? "Você tem vínculo em mais de um estabelecimento."
+                : "Escolha uma única vez — depois de agendar, ele vira o seu estabelecimento."}
+            </p>
+            <div className="mt-5 grid gap-2">
+              {(picker === "linked" ? linkedMetas : uniqueSalons).map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => { setPicker(null); setBooking(s); }}
+                  className="flex items-center justify-between rounded-xl border border-black/10 px-4 py-3 text-left text-sm font-bold hover:border-blue-600 hover:bg-blue-50 transition-all cursor-pointer"
+                >
+                  <span>{s.name}</span>
+                  <span className="text-blue-600">agendar →</span>
+                </button>
+              ))}
+              {(picker === "all" ? uniqueSalons.length : linkedMetas.length) === 0 && (
+                <p className="text-sm text-black/50">Nenhum estabelecimento disponível agora.</p>
+              )}
+            </div>
+            <Button variant="outline" className="mt-6 w-full" onClick={() => setPicker(null)}>Cancelar</Button>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Fluxo de agendamento (único método) ---- */}
+      {booking && (
+        <BookingModal
+          salon={booking}
+          linkedClient={(() => { const l = links.find((x) => x.salonId === booking.id); return l ? { clientId: l.kikinClientId } : null; })()}
+          onClose={() => { setBooking(null); }}
+          onSuccess={({ phone, whatsappOptIn }) => void handleBooked(booking, phone, whatsappOptIn)}
+        />
+      )}
+
+      {/* ---- Modal de ações (cancelar/remarcar) ---- */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-6">
           <div className="w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl bg-white p-6 sm:p-8">
@@ -440,7 +510,7 @@ export function AccountPage() {
                 </p>
                 {modalSalonWa && (
                   <a href={modalSalonWa} target="_blank" rel="noreferrer"
-                     className="mt-3 inline-flex items-center gap-2 rounded-xl border border-green-600/40 bg-green-50 px-4 py-2.5 text-xs font-bold text-green-700 hover:bg-green-100">
+                    className="mt-3 inline-flex items-center gap-2 rounded-xl border border-green-600/40 bg-green-50 px-4 py-2.5 text-xs font-bold text-green-700 hover:bg-green-100">
                     <span>💬</span> Prefere falar? Chame o salão no WhatsApp
                   </a>
                 )}
@@ -490,43 +560,27 @@ export function AccountPage() {
                     const [yy, mm, dd] = d.split("-").map(Number);
                     const label = new Date(yy, mm - 1, dd).toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" });
                     return (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => pickSlotDate(d)}
-                        className={cn(
-                          "shrink-0 rounded-xl border px-3 py-2 text-xs font-bold uppercase tracking-wide cursor-pointer",
-                          slotDate === d ? "border-blue-600 bg-blue-600 text-white" : "border-black/15 hover:border-black/40"
-                        )}
-                      >
+                      <button key={d} type="button" onClick={() => pickSlotDate(d)}
+                        className={cn("shrink-0 rounded-xl border px-3 py-2 text-xs font-bold uppercase cursor-pointer",
+                          slotDate === d ? "border-blue-600 bg-blue-600 text-white" : "border-black/15 hover:border-black/40")}>
                         {label}
                       </button>
                     );
                   })}
                 </div>
-                {slotDate && (
-                  <div className="mt-4">
-                    {slots.length === 0 ? (
-                      <p className="text-sm text-black/50">Nenhum horário livre neste dia para o profissional.</p>
-                    ) : (
-                      <div className="grid grid-cols-4 gap-2">
-                        {slots.map((s) => (
-                          <button
-                            key={s.start_at}
-                            type="button"
-                            onClick={() => confirmReschedule(s.start_at)}
-                            className={cn(
-                              "rounded-lg border py-2 text-sm font-bold cursor-pointer",
-                              slotTime === s.start_at ? "border-blue-600 bg-blue-600 text-white" : "border-black/15 hover:border-blue-600"
-                            )}
-                          >
-                            {s.start_at}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                {slotDate && (slots.length === 0 ? (
+                  <p className="mt-4 text-sm text-black/50">Nenhum horário livre neste dia para o profissional.</p>
+                ) : (
+                  <div className="mt-4 grid grid-cols-4 gap-2">
+                    {slots.map((s) => (
+                      <button key={s.start_at} type="button" onClick={() => confirmReschedule(s.start_at)}
+                        className={cn("rounded-lg border py-2 text-sm font-bold cursor-pointer",
+                          slotTime === s.start_at ? "border-blue-600 bg-blue-600 text-white" : "border-black/15 hover:border-blue-600")}>
+                        {s.start_at}
+                      </button>
+                    ))}
                   </div>
-                )}
+                ))}
                 {modalError && (
                   <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{modalError}</p>
                 )}
