@@ -1,5 +1,5 @@
 import express from "express";
-import { config } from "./config.js";
+import { config, CORS_ORIGINS } from "./config.js";
 import { globalApiLimiter } from "./middleware/rate-limit.js";
 import accountsRoutes from "./modules/accounts/accounts.routes.js";
 
@@ -11,6 +11,21 @@ export function createApp(): express.Express {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("X-Frame-Options", "DENY");
+    next();
+  });
+  // CORS restrito ao(s) origem(ns) do portal (CLIENT_APP_URL / CORS_ORIGINS)
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && CORS_ORIGINS.includes(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+      if (req.method === "OPTIONS") {
+        res.sendStatus(204);
+        return;
+      }
+    }
     next();
   });
   app.use(express.json({ limit: "1mb" }));

@@ -8,6 +8,7 @@ import {
   perUserLimiter,
 } from "../../middleware/rate-limit.js";
 import * as accounts from "./accounts.service.js";
+import * as social from "./social.service.js";
 
 const router = Router();
 
@@ -94,6 +95,74 @@ router.post("/reset-password", emailTokenLimiter, async (req, res) => {
     }
     await accounts.resetPassword(parsed.data.token, parsed.data.password);
     return res.json({ ok: true });
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
+});
+
+const socialCodeSchema = z.object({
+  code: z.string().min(1, "Código OAuth obrigatório").optional(),
+  credential: z.string().min(1).optional(),
+  redirectUri: z.string().optional(),
+});
+
+const socialSetupSchema = z.object({
+  tempToken: z.string().min(10),
+  fullName: z.string().min(2, "Informe seu nome"),
+  consent: z.boolean().refine((v) => v === true, "Consentimento obrigatório"),
+});
+
+// POST /api/v1/accounts/google — fluxo OAuth Google (mesmo padrão do Kikin: code flow)
+router.post("/google", loginLimiter, async (req, res) => {
+  try {
+    const parsed = socialCodeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ code: "VALIDATION_ERROR", error: parsed.error.issues[0]?.message || "Payload inválido" });
+    }
+    const profile = await social.verifyProvider("google", parsed.data);
+    const outcome = await social.socialLoginOrSetup("google", profile, {
+      ip: clientIpOf(req),
+      userAgent: req.headers["user-agent"] || null,
+    });
+    return res.json(outcome);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
+});
+
+// POST /api/v1/accounts/microsoft — fluxo OAuth Microsoft (code flow)
+router.post("/microsoft", loginLimiter, async (req, res) => {
+  try {
+    const parsed = socialCodeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ code: "VALIDATION_ERROR", error: parsed.error.issues[0]?.message || "Payload inválido" });
+    }
+    const profile = await social.verifyProvider("microsoft", parsed.data);
+    const outcome = await social.socialLoginOrSetup("microsoft", profile, {
+      ip: clientIpOf(req),
+      userAgent: req.headers["user-agent"] || null,
+    });
+    return res.json(outcome);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
+});
+
+// POST /api/v1/accounts/social/complete — mini passo pós-OAuth (nome + termos LGPD)
+router.post("/social/complete", signupLimiter, async (req, res) => {
+  try {
+    const parsed = socialSetupSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
+    }
+    const result = await social.completeSocialSignup({
+      tempToken: parsed.data.tempToken,
+      fullName: parsed.data.fullName,
+      consent: parsed.data.consent,
+      ip: clientIpOf(req),
+      userAgent: req.headers["user-agent"] || null,
+    });
+    return res.status(201).json(result);
   } catch (err: any) {
     return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
   }

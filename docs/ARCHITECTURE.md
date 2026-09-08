@@ -34,6 +34,28 @@
   **hash** (LGPD); “claim” no primeiro acesso.
 - ADR-002: gateway **age em nome do salão** — MVP com assinatura HMAC (padrão kikin-admin) + endpoints
   internos restritos; Fase 2 com chave de API por estabelecimento.
+- Login social (Fase 1): Google/Microsoft no **mesmo padrão do Kikin** — o web redireciona para o
+  provedor (`response_type=code`) e o gateway troca o código server-side (`GOOGLE_CLIENT_ID/SECRET`,
+  `MICROSOFT_CLIENT_ID/SECRET`), validando o e-mail verificado do provedor. O retorno cai em
+  `CLIENT_APP_URL + '/auth'` (rota `/auth` do web).
+
+## Estrutura do gateway (server/src/modules)
+- `accounts/` — `accounts.service.ts` (signup, verificação/reset de e-mail, login, sessões com
+  refresh rotativo) e `social.service.ts` (troca/validação do código OAuth, vínculo ou criação de
+  conta). Em `client_accounts`, contas sociais guardam `google_id`/`microsoft_id` (único, parcial),
+  `avatar_url` e `auth_provider`; `password_hash` fica nulo quando a conta é 100% social.
+- `kikin/` — cliente HMAC da API interna do Kikin (ADR-002).
+- Regras de negócio do social:
+  1. E-mail do provedor já existe no portal → **vincula** `google_id`/`microsoft_id` (se for o
+     primeiro acesso social), marca e-mail verificado e **entra direto** (`SUCCESS`).
+  2. E-mail não existe → devolve `NEED_SETUP` com `tempToken` (15 min); o web mostra o mini passo
+     pós-OAuth (nome + aceite de termos LGPD) e chama `/accounts/social/complete` para criar a conta.
+
+## Web (web/src)
+- Rotas: `/` (Home), `/login`, `/cadastro`, `/auth` (callback OAuth + mini passo NEED_SETUP),
+  `/conta` (área do cliente pós-login, protegida), `/termos` e `/privacidade`.
+- `contexts/AuthContext.tsx` valida a sessão salva via `/accounts/me` no boot e tenta `refresh`
+  quando o access token expirou; `lib/api.ts` centraliza o cliente HTTP e os helpers de OAuth.
 
 ## Agendar novo
 Reusa a **mesma lógica do booking público do Kikin (via slug do estabelecimento)**, com dados

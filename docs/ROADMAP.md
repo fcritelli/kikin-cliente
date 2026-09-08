@@ -9,8 +9,13 @@
 
 ## Fase 1 — MVP
 **Conta**
-- Signup/login com e-mail+senha; verificação de e-mail; reset de senha; logout.
-- Rate limit (signup/login/forgot), proteção anti-bot.
+- [x] Signup/login com e-mail+senha; verificação de e-mail; reset de senha; logout.
+- [x] Login/cadastro social Google e Microsoft (code flow, mesmo padrão do Kikin: gateway troca o
+  código server-side). Conta nova passa por mini passo pós-OAuth (nome + termos LGPD); e-mail já
+  existente é vinculado ao provedor e entra direto.
+- [ ] Registrar OAuth apps do portal (`GOOGLE_CLIENT_ID`/`MICROSOFT_CLIENT_ID`) com redirect
+  autorizado = `CLIENT_APP_URL + '/auth'` (dev `http://localhost:5174/auth`; hml `https://cliente.kikin.com.br/auth`).
+- [x] Rate limit (signup/login/forgot), proteção anti-bot.
 **Vínculo**
 - Primeiro acesso: "já tenho agendamentos? informe telefone" → casa por hash com `clients` do
   estabelecimento (LGPD: só hash/máscara) e vincula a conta.

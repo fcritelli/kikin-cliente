@@ -188,7 +188,8 @@ export async function login(input: {
     is_active: boolean;
   }>("SELECT id, password_hash, email_verified_at, is_active FROM client_accounts WHERE email_normalized = $1", [email]);
   const account = res.rows[0];
-  const ok = account && account.is_active && (await bcrypt.compare(input.password, account.password_hash));
+  // Contas 100% sociais não possuem password_hash: senha local nunca confere.
+  const ok = account && account.is_active && account.password_hash && (await bcrypt.compare(input.password, account.password_hash));
   if (!ok || !account) throw err(401, "INVALID_CREDENTIALS", "E-mail ou senha incorretos.");
   if (!account.email_verified_at) throw err(403, "EMAIL_NOT_VERIFIED", "Verifique seu e-mail antes de entrar.");
   const tokens = await issueSession(account.id, { ip: input.ip, userAgent: input.userAgent });
@@ -231,6 +232,8 @@ export interface PublicAccount {
   email: string;
   fullName: string;
   emailVerified: boolean;
+  avatarUrl: string | null;
+  authProvider: string;
 }
 
 export async function getAccount(accountId: string): Promise<PublicAccount | null> {
@@ -239,7 +242,13 @@ export async function getAccount(accountId: string): Promise<PublicAccount | nul
     email: string;
     full_name: string;
     email_verified_at: Date | null;
-  }>("SELECT id, email, full_name, email_verified_at FROM client_accounts WHERE id = $1", [accountId]);
+    avatar_url: string | null;
+    auth_provider: string;
+  }>(
+    `SELECT id, email, full_name, email_verified_at, avatar_url, auth_provider
+     FROM client_accounts WHERE id = $1`,
+    [accountId]
+  );
   const a = res.rows[0];
   if (!a) return null;
   return {
@@ -247,6 +256,8 @@ export async function getAccount(accountId: string): Promise<PublicAccount | nul
     email: a.email,
     fullName: a.full_name,
     emailVerified: Boolean(a.email_verified_at),
+    avatarUrl: a.avatar_url,
+    authProvider: a.auth_provider,
   };
 }
 

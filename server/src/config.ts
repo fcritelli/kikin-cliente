@@ -21,7 +21,19 @@ const schema = z.object({
   SMTP_FROM: z.string().optional(),
   // Em dev/hml sem SMTP: retorna o token de verificação na resposta
   EMAIL_VERIFY_RETURN_TOKEN: z.string().default(isProd ? "false" : "true"),
+  // OAuth social (Google/Microsoft). Código trocado server-side, padrão do Kikin.
+  // Client IDs OAuth devem ter authorized redirect = OAUTH_REDIRECT_URI (default CLIENT_APP_URL + '/auth').
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  MICROSOFT_CLIENT_ID: z.string().optional(),
+  MICROSOFT_CLIENT_SECRET: z.string().optional(),
+  OAUTH_REDIRECT_URI: z.string().url().optional(),
+  CORS_ORIGINS: z.string().optional(), // lista separada por vírgula; default CLIENT_APP_URL
 });
+
+function cleanTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
 
 const parsed = schema.safeParse(process.env);
 if (!parsed.success) {
@@ -29,6 +41,15 @@ if (!parsed.success) {
   const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`);
   throw new Error("Config inválida do kikin-cliente/server:\n" + issues.join("\n"));
 }
+
+// URI de retorno única do OAuth (o botão do web redireciona para CLIENT_APP_URL + '/auth').
+export const OAUTH_REDIRECT_URI =
+  parsed.data.OAUTH_REDIRECT_URI || `${cleanTrailingSlash(parsed.data.CLIENT_APP_URL)}/auth`;
+
+export const CORS_ORIGINS = (parsed.data.CORS_ORIGINS || parsed.data.CLIENT_APP_URL)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 export const config = parsed.data;
 export type AppConfig = typeof config;
