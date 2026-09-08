@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { publicBookingLimiter } from "../../middleware/rate-limit.js";
 import { bookingProxy, publicErrorToHttp } from "./booking.service.js";
+import { sendWhatsApp } from "../../services/whatsapp/whatsapp.service.js";
 import { listSalons } from "../links/links.service.js";
 
 const router = Router();

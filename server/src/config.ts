@@ -31,6 +31,17 @@ const schema = z.object({
   MICROSOFT_CLIENT_SECRET: z.string().optional(),
   OAUTH_REDIRECT_URI: z.string().url().optional(),
   CORS_ORIGINS: z.string().optional(), // lista separada por vírgula; default CLIENT_APP_URL
+  // ---- WhatsApp (estrutura plugável; 'log' em dev não envia de verdade) ----
+  WHATSAPP_PROVIDER: z.string().default("log"), // 'log' | 'meta' | 'zapi'
+  WHATSAPP_META_TOKEN: z.string().optional(),
+  WHATSAPP_META_PHONE_ID: z.string().optional(),
+  WHATSAPP_ZAPI_INSTANCE: z.string().optional(),
+  WHATSAPP_ZAPI_TOKEN: z.string().optional(),
+  // Dev/hml sem provedor: o código OTP retorna na resposta (igual e-mail/EMAIL_VERIFY_RETURN_TOKEN)
+  WHATSAPP_DEV_RETURN_CODE: z.string().default(isProd ? "false" : "true"),
+  // Chave AES-256-GCM para criptografar números em repouso (enviar mensagem exige o número;
+  // LGPD: nunca texto plano no banco). Dev default; produção deve setar.
+  WHATSAPP_PHONE_KEY: z.string().min(16).optional(),
 });
 
 function cleanTrailingSlash(value: string): string {

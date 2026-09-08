@@ -1,48 +1,53 @@
-# WhatsApp no Portal do Cliente — Estrutura (estágio: consentimento + seams; provedor depois)
+# WhatsApp no Portal do Cliente — Estrutura de configuração e comunicação
 
-Status: design aceito na sessão de produto (sem provedor conectado ainda).
+Status: **estrutura implementada** — cadastro/login por OTP + mensagens plugáveis.
+Transporte dev = `log` (não envia de verdade; código registrado e retornado). Provedor real
+(Meta Cloud API ou Z-API) = só preencher env.
 
-## Princípio
-- O **telefone do vínculo É o número do WhatsApp** (identificador). Normalização BR com DDI 55;
-  **nunca** guardamos o número cru — apenas `phone_hash` (HMAC, salt = segredo do serviço) e
-  `phone_masked`. Isso já é o que `account_establishment_links` faz.
-- WhatsApp é um **canal plugável** (confirmação, lembrete, aviso de cancelamento/remarcação,
-  OTP de verificação). Nenhuma implementação de envio existe ainda — os pontos de gatilho e o
-  consentimento já ficam prontos.
+## Como o número é tratado (LGPD)
+- **Em repouso:** nunca texto plano. Guardamos `hash` (busca/unicidade), `máscara` (exibição) e o
+  valor **criptografado AES-256-GCM** (`client_accounts.whatsapp_phone_enc`; chave
+  `WHATSAPP_PHONE_KEY`), usado apenas em memória para enviar.
+- **Em trânsito:** o número chega no request (cadastro/OTP) ou é decriptado na hora do envio —
+  nunca logado.
 
-## Consentimento (LGPD) — já implementado
-- `account_establishment_links.whatsapp_optin_at` (timestamptz): registrado quando o cliente
-  confirma que o número é o WhatsApp dele e autoriza confirmações/lembretes.
-- Captura nos pontos de primeiro contato:
-  - **Booking** (fluxo "Agendar" dentro do `/conta`): checkbox *"Confirmo que este número é meu
-    WhatsApp e aceito receber a confirmação do agendamento e lembretes por ele."* (cliente sem
-    vínculo redigita o número; vinculado só confirma o opt-in — o número já é o do vínculo).
-  - **Claim** (`/conta` → "Encontre seus agendamentos"): mesmo checkbox.
-  - Logado: o opt-in é repassado ao auto-vínculo (`/links/auto`); convidado → contexto em
-    sessionStorage é levado ao cadastro → auto-vínculo grava o opt-in.
-- **Sem opt-in** → continua agendando normalmente (telefone só como identidade); envios de
-  WhatsApp só ocorrem com `whatsapp_optin_at` presente.
+## Configuração (env do gateway)
+```env
+WHATSAPP_PROVIDER=log|meta|zapi
+WHATSAPP_META_TOKEN=...          # Meta Cloud API
+WHATSAPP_META_PHONE_ID=...
+WHATSAPP_ZAPI_INSTANCE=...
+WHATSAPP_ZAPI_TOKEN=...
+WHATSAPP_DEV_RETURN_CODE=true    # dev: código OTP volta na resposta
+WHATSAPP_PHONE_KEY=...           # AES-256-GCM (produção obrigatório)
+```
 
-## Gatilhos mapeados (futuro)
-| Evento | Canal/destino |
+## Cadastro/login por WhatsApp (OTP)
+- POST `/accounts/whatsapp/request` `{phone}` → gera código 6 dígitos (hash), envia por WhatsApp,
+  10 min; em dev responde `devCode`.
+- POST `/accounts/whatsapp/verify` `{phone, code}` → `LOGIN` (conta com esse número) ou
+  `NEED_REGISTER` (+`tempToken`).
+- POST `/accounts/whatsapp/register` `{tempToken, fullName, consent, email?}` → cria a conta
+  (e-mail **opcional**; `auth_provider='whatsapp'`) e **vincula automaticamente** todos os salões
+  onde o número já está cadastrado (recuperação silenciosa; prova = OTP).
+- UI: “Entrar com o WhatsApp” no login/cadastro (número → código → nome/termos quando novo).
+
+## Mensagens automáticas (gatilhos)
+| Evento | Destino |
 |---|---|
-| Confirmação de agendamento (criado/remarcado) | Cliente (opt-in) e salão |
-| Lembrete (ex.: 24h / 2h antes) | Cliente (opt-in) |
-| Cancelamento/remarcação | Salão (aviso) |
-| Verificação/OTP de número (provar que é o WhatsApp do cliente) | Cliente — quando implementarmos |
-| "Falar com o salão" | Cliente — **já funciona** via `https://wa.me/<telefone do salão>` (número público do salão) |
+| Confirmação de agendamento (novo/remarcado) | Cliente (opt-in) |
+| Cancelamento/remarcação | Cliente (opt-in) e **salão** (aviso p/ agir) |
+| OTP de cadastro/login | Cliente |
+- Regra: cliente só recebe com opt-in (`whatsapp_optin_at`); salão recebe aviso no número dele.
+- Falhas de envio **nunca quebram** o fluxo (logadas).
 
-## Seam técnico (para quando houver provedor)
-```
-interface WhatsAppSender {
-  send(input: { to: WaId; template: "booking_confirmed" | "reminder" | "salon_notified" | "otp"; vars: Record<string,string> }): Promise<void>;
-}
-```
-- `WaId` = telefone normalizado com DDI (55…) — já é o formato que o portal usa no hash.
-- Provedores candidatos: Meta WhatsApp Cloud API (oficial), Twilio, Z-API/Evolution (gateways BR).
-- Config futura: `WHATSAPP_PROVIDER` + credenciais no gateway; hooks chamados após os eventos
-  acima, sempre guardando falhas em log (nunca quebra o fluxo de agendamento).
+## Transportes
+- `log`: registra a mensagem e (dev) expõe o código — permite desenvolver tudo sem provedor.
+- `meta`: WhatsApp Cloud API (`graph.facebook.com/.../messages`).
+- `zapi`: gateway BR (`send-text`).
+- Padrão: falha controlada + configuração por env; adicionar provedor = novo caso no `sendWhatsApp`.
 
-## Fora de escopo agora
-- Envio/OTP real, templates aprovados pelo Meta, fila de mensagens, webhook de status.
-- Número do salão como WhatsApp oficial do estabelecimento (curadoria do salão no admin).
+## Futuro
+- Webhook de status/delivery e template OTP aprovado (Meta exige template de autenticação).
+- Lembrete 24h/2h (job) e fila de mensagens.
+- “Falar com o salão” via wa.me já disponível nos modais (número público do salão).

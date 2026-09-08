@@ -176,6 +176,14 @@ export const api = {
   },
   bookingBook: (slug: string, body: BookPayload) =>
     request<BookResult>(`/booking/${slug}/book`, { method: "POST", body }),
+  // ---- WhatsApp (cadastro/login por OTP)
+  whatsappRequest: (phone: string) =>
+    request<{ ok: true; masked: string; devCode?: string }>("/accounts/whatsapp/request", { method: "POST", body: { phone } }),
+  whatsappVerify: (phone: string, code: string) =>
+    request<WhatsappVerifyOutcome>("/accounts/whatsapp/verify", { method: "POST", body: { phone, code } }),
+  whatsappRegister: (body: { tempToken: string; fullName: string; consent: boolean; email?: string | null }) =>
+    request<{ tokens: Tokens; account: PublicAccount; linked: number }>("/accounts/whatsapp/register", { method: "POST", body }),
+
 };
 
 export interface BookingSalonMeta {
@@ -303,3 +311,8 @@ export function resolveOAuthCallbackProvider(returnedState: string | null): Soci
   const expected = sessionStorage.getItem(OAUTH_STATE_KEY);
   return expected && returnedState === expected ? "microsoft" : "invalid";
 }
+
+
+export type WhatsappVerifyOutcome =
+  | { status: "LOGIN"; tokens: Tokens; account: PublicAccount }
+  | { status: "NEED_REGISTER"; tempToken: string; masked: string };

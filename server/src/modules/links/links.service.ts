@@ -1,5 +1,6 @@
 import { query, withTransaction } from "../../db.js";
 import { config } from "../../config.js";
+import { decryptPhone, sendWhatsApp } from "../../services/whatsapp/whatsapp.service.js";
 import { err } from "../accounts/accounts.service.js";
 import { KikinPortalClient } from "../kikin/kikin-client.js";
 import { hashPhoneBR, maskPhoneBR, normalizePhoneBR } from "../../utils/phone.js";
@@ -261,11 +262,13 @@ export async function cancelAppointment(input: {
   appointmentId: string;
 }): Promise<any> {
   const link = await requireLink(input.accountId, input.salonId);
-  return newKikin().cancel({
+  const result = await newKikin().cancel({
     salonId: input.salonId,
     appointmentId: input.appointmentId,
     clientId: link.kikinClientId,
   });
+  void notifyChanges({ accountId: input.accountId, link, kind: "canceled" });
+  return result;
 }
 
 /** Remarca: troca atômica no Kikin (novo grupo criado → grupo antigo cancelado). */
@@ -277,13 +280,15 @@ export async function rescheduleAppointment(input: {
   startAt: string;
 }): Promise<any> {
   const link = await requireLink(input.accountId, input.salonId);
-  return newKikin().reschedule({
+  const result = await newKikin().reschedule({
     salonId: input.salonId,
     appointmentId: input.appointmentId,
     clientId: link.kikinClientId,
     staffId: input.staffId || null,
     startAt: input.startAt,
   });
+  void notifyChanges({ accountId: input.accountId, link, kind: "rescheduled", when: fmtWhenBr(input.startAt) });
+  return result;
 }
 
 /** Agenda direto para o client vinculado (sem redigitar telefone). */
@@ -303,13 +308,15 @@ export async function bookForLinkedClient(input: {
       [link.id]
     );
   }
-  return newKikin().bookForClient({
+  const result = await newKikin().bookForClient({
     salonId: input.salonId,
     clientId: link.kikinClientId,
     serviceIds: input.serviceIds,
     staffId: input.staffId || null,
     startAt: input.startAt,
   });
+  void notifyChanges({ accountId: input.accountId, link, kind: "booked", when: fmtWhenBr(input.startAt) });
+  return result;
 }
 
 /** Histórico de consultas (inclui canceladas/faltas) do cliente nos vínculos. */
@@ -356,4 +363,53 @@ export async function setWhatsappOptin(input: { accountId: string; salonId: stri
   );
   const row = await getLinkRow(link.id);
   return row!;
+}
+
+/** Número de WhatsApp da conta (decriptado em memória p/ envio). */
+async function decryptedAccountPhone(accountId: string): Promise<string | null> {
+  const res = await query<{ whatsapp_phone_enc: string | null }>(
+    "SELECT whatsapp_phone_enc FROM client_accounts WHERE id = $1",
+    [accountId]
+  );
+  return decryptPhone(res.rows[0]?.whatsapp_phone_enc);
+}
+
+function fmtWhenBr(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" });
+  } catch {
+    return iso;
+  }
+}
+
+/** Avisos por WhatsApp (cliente quando opt-in; salão nos eventos que exigem ação). */
+async function notifyChanges(input: {
+  accountId: string;
+  link: EstablishmentLink;
+  kind: "booked" | "canceled" | "rescheduled";
+  when?: string;
+}) {
+  const clientPhone = await decryptedAccountPhone(input.accountId).catch(() => null);
+  if (clientPhone && input.link.whatsappOptInAt) {
+    const map: Record<string, string> = {
+      booked: `Seu horário em ${input.link.salonName || "estabelecimento"} foi confirmado${input.when ? ` para ${input.when}` : ""}.`,
+      canceled: `Seu horário em ${input.link.salonName || "estabelecimento"} foi cancelado.`,
+      rescheduled: `Seu horário foi remarcado${input.when ? ` para ${input.when}` : ""} no ${input.link.salonName || "estabelecimento"}.`,
+    };
+    await sendWhatsApp(clientPhone, map[input.kind]);
+  }
+  try {
+    const salons = await listSalons();
+    const meta = salons.find((x) => x.id === input.link.salonId);
+    if (meta?.phone) {
+      const map: Record<string, string> = {
+        canceled: `⚠️ ${input.link.clientName} cancelou um horário pelo portal (kikin cliente).`,
+        rescheduled: `↔️ ${input.link.clientName} remarcou um horário pelo portal${input.when ? ` para ${input.when}` : ""}.`,
+        booked: `✔️ Novo agendamento de ${input.link.clientName} pelo portal${input.when ? ` para ${input.when}` : ""}.`,
+      };
+      await sendWhatsApp(meta.phone, map[input.kind]);
+    }
+  } catch {
+    /* best-effort */
+  }
 }

@@ -27,6 +27,10 @@
   `account_establishment_links` (LGPD: só hash + máscara; dedupe: mesmo telefone não vincula a
   duas contas).
 - [x] "Meus próximos horários" listando agendamentos futuros do(s) vínculo(s).
+- [x] **Cadastro/login por WhatsApp (OTP)** — estrutura plugável (dev log; Meta/Z-API por env),
+  número verificado criptografado em repouso, e-mail opcional, auto-vínculo silencioso dos
+  cadastros existentes do número. Mensagens de confirmação/aviso (cliente opt-in; salão) e
+  “falar com o salão” via wa.me. (detalhes: docs/WHATSAPP.md)
 - [x] **Área logada com navegação lateral**: Dashboard (visão geral + agendar + próximos) ·
   Consultas (próximas e histórico com status) · Estabelecimentos (vínculos: cadastro mascarado,
   opt-in de WhatsApp, agendar neste, recuperar por WhatsApp) · Perfil (nome editável, e-mail,

@@ -9,6 +9,7 @@ import {
 } from "../../middleware/rate-limit.js";
 import * as accounts from "./accounts.service.js";
 import * as social from "./social.service.js";
+import * as whatsappAuth from "../../services/whatsapp/whatsapp-auth.service.js";
 
 const router = Router();
 
@@ -209,6 +210,49 @@ router.post("/logout", async (req, res) => {
   const refreshToken = (req.body as any)?.refreshToken as string | undefined;
   if (refreshToken) await accounts.revokeSession(refreshToken).catch(() => undefined);
   return res.json({ ok: true });
+});
+
+// POST /api/v1/accounts/whatsapp/request — envia OTP por WhatsApp (cadastro/login)
+router.post("/whatsapp/request", loginLimiter, async (req, res) => {
+  try {
+    const parsed = z.object({ phone: z.string().min(8, "Informe seu WhatsApp").max(20) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
+    const result = await whatsappAuth.requestWhatsappOtp(parsed.data);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
+});
+
+// POST /api/v1/accounts/whatsapp/verify — confere o código (LOGIN ou NEED_REGISTER)
+router.post("/whatsapp/verify", loginLimiter, async (req, res) => {
+  try {
+    const parsed = z.object({ phone: z.string().min(8).max(20), code: z.string().min(6).max(6) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ code: "VALIDATION_ERROR", error: "Informe número e código (6 dígitos)." });
+    const outcome = await whatsappAuth.verifyWhatsappOtp(parsed.data);
+    return res.json(outcome);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
+});
+
+// POST /api/v1/accounts/whatsapp/register — 1º acesso: nome + termos (+ e-mail opcional)
+router.post("/whatsapp/register", signupLimiter, async (req, res) => {
+  try {
+    const parsed = z
+      .object({
+        tempToken: z.string().min(10),
+        fullName: z.string().min(2, "Informe seu nome"),
+        consent: z.boolean().refine((v) => v === true, "Consentimento obrigatório"),
+        email: z.string().email().optional().nullable(),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
+    const result = await whatsappAuth.completeWhatsappSignup(parsed.data);
+    return res.status(201).json(result);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
 });
 
 // PUT /api/v1/accounts/profile — edita nome

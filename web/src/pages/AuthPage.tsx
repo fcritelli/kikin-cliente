@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { SocialButtons } from "@/components/auth/SocialButtons";
+import { WhatsAppAuthPanel } from "@/components/auth/WhatsAppAuthPanel";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
@@ -263,8 +264,9 @@ export function AuthPage({ mode }: AuthPageProps) {
                   : "Agende, remaque e cancele horários — rápido e sem telefone."}
               </p>
 
-              <div className="mt-6">
+              <div className="mt-6 grid gap-2.5">
                 <SocialButtons action={tab} />
+                <WhatsAppAuthPanel />
               </div>
 
               <div className="my-6 flex items-center gap-3 text-[11px] font-bold uppercase tracking-[0.2em] text-black/40">
