@@ -12,13 +12,13 @@ import { normalizePhoneBR } from "../../utils/phone.js";
  * em repouso guardamos hash + máscara + valor criptografado (AES-256-GCM).
  */
 
-export type WhatsAppProviderName = "log" | "meta" | "zapi";
+export type WhatsAppProviderName = "log" | "meta" | "zapi" | "openwa";
 
 export interface WhatsAppSendResult { ok: boolean; transport: WhatsAppProviderName; to: string; log?: string }
 
 export function providerName(): WhatsAppProviderName {
   const p = (config.WHATSAPP_PROVIDER || "log").toLowerCase();
-  return p === "meta" || p === "zapi" ? p : "log";
+  return p === "meta" || p === "zapi" || p === "openwa" ? p : "log";
 }
 
 function phoneToWaId(raw: string): string {
@@ -63,6 +63,20 @@ async function sendViaZapi(to: string, message: string): Promise<boolean> {
   return true;
 }
 
+async function sendViaOpenwa(to: string, message: string): Promise<boolean> {
+  if (!config.WHATSAPP_OPENWA_URL || !config.WHATSAPP_OPENWA_API_KEY || !config.WHATSAPP_OPENWA_SESSION) {
+    throw new Error("WHATSAPP_OPENWA_URL/API_KEY/SESSION não configurados.");
+  }
+  const base = config.WHATSAPP_OPENWA_URL.replace(/\/$/, "");
+  const res = await fetch(`${base}/api/sessions/${encodeURIComponent(config.WHATSAPP_OPENWA_SESSION)}/messages/send-text`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-Key": config.WHATSAPP_OPENWA_API_KEY },
+    body: JSON.stringify({ chatId: `${to}@c.us`, text: message }),
+  });
+  if (!res.ok) throw new Error(`OpenWA respondeu ${res.status}: ${await res.text()}`);
+  return true;
+}
+
 /** Envia uma mensagem (tentativa). Falhas NUNCA quebram o fluxo de negócio. */
 export async function sendWhatsApp(rawPhone: string, message: string): Promise<WhatsAppSendResult> {
   const to = phoneToWaId(rawPhone);
@@ -72,6 +86,8 @@ export async function sendWhatsApp(rawPhone: string, message: string): Promise<W
       await sendViaMeta(to, message);
     } else if (transport === "zapi") {
       await sendViaZapi(to, message);
+    } else if (transport === "openwa") {
+      await sendViaOpenwa(to, message);
     } else {
       console.log(`[WhatsApp:log] para ${to}:\n${message}`);
     }

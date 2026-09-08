@@ -37,6 +37,9 @@ const schema = z.object({
   WHATSAPP_META_PHONE_ID: z.string().optional(),
   WHATSAPP_ZAPI_INSTANCE: z.string().optional(),
   WHATSAPP_ZAPI_TOKEN: z.string().optional(),
+  WHATSAPP_OPENWA_URL: z.string().url().optional(),
+  WHATSAPP_OPENWA_API_KEY: z.string().optional(),
+  WHATSAPP_OPENWA_SESSION: z.string().optional(),
   // Dev/hml sem provedor: o código OTP retorna na resposta (igual e-mail/EMAIL_VERIFY_RETURN_TOKEN)
   WHATSAPP_DEV_RETURN_CODE: z.string().default(isProd ? "false" : "true"),
   // Chave AES-256-GCM para criptografar números em repouso (enviar mensagem exige o número;

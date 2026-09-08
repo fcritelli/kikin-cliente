@@ -13,11 +13,14 @@ Transporte dev = `log` (não envia de verdade; código registrado e retornado). 
 
 ## Configuração (env do gateway)
 ```env
-WHATSAPP_PROVIDER=log|meta|zapi
+WHATSAPP_PROVIDER=log|meta|zapi|openwa
 WHATSAPP_META_TOKEN=...          # Meta Cloud API
 WHATSAPP_META_PHONE_ID=...
 WHATSAPP_ZAPI_INSTANCE=...
 WHATSAPP_ZAPI_TOKEN=...
+WHATSAPP_OPENWA_URL=https://wa.kikin.com.br   # OpenWA (HML)
+WHATSAPP_OPENWA_API_KEY=...                    # API key (dashboard)
+WHATSAPP_OPENWA_SESSION=kikin-otp              # sessão conectada
 WHATSAPP_DEV_RETURN_CODE=true    # dev: código OTP volta na resposta
 WHATSAPP_PHONE_KEY=...           # AES-256-GCM (produção obrigatório)
 ```
@@ -45,6 +48,7 @@ WHATSAPP_PHONE_KEY=...           # AES-256-GCM (produção obrigatório)
 - `log`: registra a mensagem e (dev) expõe o código — permite desenvolver tudo sem provedor.
 - `meta`: WhatsApp Cloud API (`graph.facebook.com/.../messages`).
 - `zapi`: gateway BR (`send-text`).
+- `openwa`: OpenWA self-hosted (`/api/sessions/{session}/messages/send-text`, `chatId: 55…@c.us`).
 - Padrão: falha controlada + configuração por env; adicionar provedor = novo caso no `sendWhatsApp`.
 
 ## Futuro
