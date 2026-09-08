@@ -32,7 +32,7 @@
 ## Decisões aceitas
 - ADR-001: conta do cliente em **banco próprio do portal**; vínculo com `clients` do Kikin por
   **hash** (LGPD); “claim” no primeiro acesso.
-- ADR-002: gateway **age em nome do salão** — MVP com token de serviço dedicado + endpoints
+- ADR-002: gateway **age em nome do salão** — MVP com assinatura HMAC (padrão kikin-admin) + endpoints
   internos restritos; Fase 2 com chave de API por estabelecimento.
 
 ## Agendar novo

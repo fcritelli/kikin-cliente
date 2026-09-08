@@ -1,6 +1,6 @@
 # ADR-002 — O gateway “age em nome do salão” (autenticação na API do Kikin)
 
-Status: **ACEITO** (MVP: token de serviço; Fase 2: chave por estabelecimento)
+Status: **ACEITO** (revisado: mesmo esquema seguro do kikin-admin — HMAC assinado)
 
 ## O que significa “agir em nome do salão”
 O portal realiza operações que pertencem ao **domínio do estabelecimento** na API do Kikin
@@ -9,40 +9,53 @@ O portal realiza operações que pertencem ao **domínio do estabelecimento** na
 modo que:
 
 - o Kikin aplica o **escopo de dados daquele salão** (nunca vê outro salão);
-- as ações ficam **contextualizadas no salão** (logs/auditoria do lado Kikin apontam o salão);
-- o **cliente final nunca recebe/usa credenciais do dono do salão** — o portal é o único
-  autorizado, com credencial própria.
+- as ações ficam **contextualizadas no salão** (logs/auditoria apontam o salão);
+- o **cliente final nunca recebe/usa credenciais do dono do salão**.
 
-Não usamos a senha do dono nem o token do kikin-admin para isso.
+## Mecanismo — mesmo padrão seguro do kikin-admin
+Em vez de bearer token simples, cada chamada do gateway é **assinada com HMAC-SHA256** de uma
+string canônica, exatamente como o `kikin-admin` → Kikin (`generateAdminSignature` +
+`requireInternalAdmin`). Diferenças: identidade é o **serviço (gateway)**, não um operador
+humano, e o segredo é **dedicado ao client-portal** (não reusa o do admin).
 
-## Mecanismo
-### MVP — Token de serviço dedicado (recomendação aceita)
-- O gateway possui um **segredo de serviço** (estilo do `KIKIN_SERVICE_TOKEN`/HMAC usado pelo
-  kikin-admin) e chama **endpoints internos NOVOS e restritos** no Kikin
-  (`/internal/client-portal/...`), com middleware próprio (não o do admin).
-- Cada chamada carrega `salon_id`; o Kikin **valida o escopo pelo token** (por enquanto o token
-  é único e confiável — o gateway é quem resolve a qual salão a conta está vinculada).
-- Fluxo do "claim": o portal envia `{ hash_phone }` e `salon_id`; o Kikin devolve os clientes
-  que casam por aquele hash **naquele salão** (nunca por outro).
-- Agendar novo: o gateway chama o Kikin na **mesma lógica do booking público via slug**
-  (`/booking/:slug/book` interno), com os dados do cliente logado.
-- Cancelar/remarcar: endpoints de sessão autenticados no portal que acionam o Kikin com o
-  `client_id` vinculado.
+### Headers
+| Header | Conteúdo |
+| --- | --- |
+| `X-Service-Id` | identidade do serviço (`client-portal`) — equivale ao `X-Admin-User-Id` |
+| `X-Service-Timestamp` | epoch ms (tolerância de skew, ex.: ±2 min) |
+| `X-Service-Nonce` | UUID por chamada (anti-replay; cache TTL 2 min no Kikin) |
+| `X-Service-Scope` | JSON com o escopo assinado (ex.: `{"salonIds":["..."]}`) — como o `X-Admin-Permissions` |
+| `X-Service-Signature` | HMAC-SHA256 da string canônica (hex) |
+| `X-Trace-Id` | correlação |
 
-### Fase 2 (white-label / multi-cliente) — Chave de API por estabelecimento
-- Cada salão ganha uma chave `client_portal_*` (emitida/revogada no kikin-admin).
-- O gateway usa a chave **do estabelecimento** para o qual está agindo; o Kikin valida escopo
-  por salão (menor privilégio) e auditoria por salão.
-- Os endpoints internos permanecem os mesmos — muda só a autenticação/autorização.
+### String canônica (igual à do admin, com escopo no lugar de permissões)
+```
+METHOD:PATH:CANONICAL_QUERY:BODY_HASH:SERVICE_ID:TIMESTAMP:NONCE:SCOPE_HEADER
+```
+- `BODY_HASH` = sha256 do corpo (vazio quando GET sem corpo).
+- `X-Service-Scope` entra na assinatura (não pode ser adulterado).
+- Verificação no Kikin: recomputa, compara em tempo constante, checa nonce (replay) e
+  timestamp (expiração). Replay além da janela → 401.
 
-## Contrato (próximo passo)
-Endpoints internos a detalhar (método, request/response, erros):
-- `GET /internal/client-portal/clients?salon_id&hash_phone` (busca candidatos mascarados)
-- `GET /internal/client-portal/appointments?client_id&salon_id&future`
-- `POST /internal/client-portal/book` (via slug; corpo com client_id/serviços/horário)
-- `POST /internal/client-portal/cancel` e `.../reschedule`
-- `DELETE /internal/client-portal/link` (desvincular conta, opcional)
+### Idempotência
+Mutações (`book`, `cancel`, `reschedule`) enviam `X-Idempotency-Key` e o Kikin deduplica
+(como as ações do kikin-admin).
 
-## Segurança
-- Rate limit por IP e por usuário do portal; o token de serviço nunca exposto ao browser.
-- Logs sem dados cru do cliente (hash/máscara apenas).
+### Endpoints internos (roteador dedicado no Kikin)
+`/internal/client-portal/...` com **middleware próprio** (mesmo esquema HMAC, porém segredo e
+escopo distintos do `requireInternalAdmin` — o gateway NÃO herda poderes do admin):
+- `GET /clients?salon_id&hash_phone` — candidatos mascarados p/ o claim;
+- `GET /appointments?client_id&salon_id&future` — meus agendamentos;
+- `POST /book` — agenda via **slug** (mesma lógica do booking público) com dados do cliente;
+- `POST /cancel` e `POST /reschedule`;
+- `POST /link` (opcional) — confirmar vínculo.
+
+## Fase 2 (white-label / multi-cliente) — chave por estabelecimento
+Mesmo esquema HMAC, com **chave (segredo) por estabelecimento** emitida/revogada no kikin-admin:
+o gateway assina com a chave do salão em questão; o Kikin valida escopo pelo segredo usado
+(menor privilégio, auditoria por salão). Não muda a string canônica nem os endpoints.
+
+## Segurança resumida
+- HMAC + nonce + timestamp + escopo assinado + idempotency (não é bearer simples).
+- Segredo dedicado ao client-portal (rotacionável); nunca no browser.
+- Logs sem dado cru do cliente (hash/máscara apenas).
