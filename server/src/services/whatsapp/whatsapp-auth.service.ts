@@ -47,8 +47,11 @@ export async function requestWhatsappOtp(input: { phone: string }): Promise<{ ok
   );
 
   const sent = await sendWhatsApp(normalized, `Seu código do kikin cliente é ${code}. Ele expira em 10 minutos.`);
+  if (!sent.ok) {
+    throw err(502, "WHATSAPP_SEND_FAILED", "Não foi possível enviar o código por WhatsApp. Tente novamente em instantes.");
+  }
   const dev = config.WHATSAPP_DEV_RETURN_CODE === "true";
-  return { ok: true, masked, ...(sent.ok && dev ? { devCode: code } : {}) };
+  return { ok: true, masked, ...(dev ? { devCode: code } : {}) };
 }
 
 export type WhatsappVerifyOutcome =

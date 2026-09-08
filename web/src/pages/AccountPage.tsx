@@ -168,18 +168,6 @@ export function AccountPage() {
     return metas;
   }, [links, salons]);
 
-  const uniqueSalons = useMemo(() => {
-    const seen = new Set<string>();
-    const out: BookingSalonMeta[] = [];
-    for (const s of salons || []) {
-      const k = s.name.trim().toLowerCase();
-      if (seen.has(k)) continue;
-      seen.add(k);
-      out.push(s);
-    }
-    return out.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-  }, [salons]);
-
   const loadHistory = async () => {
     if (history) return;
     try {
@@ -233,7 +221,12 @@ export function AccountPage() {
     const linked = (salons || []).filter((s) => linkedIds.has(s.id));
     if (linked.length === 1) setBooking(linked[0]);
     else if (linked.length > 1) setPicker("linked");
-    else setPicker("all");
+    else {
+      // sem vínculo: nada de listar outros salões — orienta a recuperar o cadastro
+      setMessage("Para agendar, primeiro vincule seu cadastro: recupere pelo WhatsApp usado no estabelecimento.");
+      setShowClaim(true);
+      setTab("estabelecimentos");
+    }
   };
 
   const handleBooked = async (salon: BookingSalonMeta, phoneDigits: string, whatsappOptIn: boolean) => {
@@ -508,7 +501,7 @@ export function AccountPage() {
                 <h2 className="text-lg font-black uppercase tracking-tight">Agendar</h2>
                 <p className="mt-1.5 text-sm text-black/60">
                   {links.length === 0
-                    ? "Escolha o seu estabelecimento e veja os horários disponíveis."
+                    ? "Vincule-se a um estabelecimento para agendar (apenas o seu salão aparece)."
                     : `Agende no seu estabelecimento: ${linkedMetas.map((m) => m.name).join(", ") || "carregando…"}`}
                 </p>
                 <Button className="mt-4" onClick={openAgendar}>Agendar agora</Button>
@@ -517,11 +510,11 @@ export function AccountPage() {
               {links.length === 0 ? (
                 <div className="mt-6 rounded-2xl border border-black/10 bg-white p-6 text-sm text-black/60">
                   <p>
-                    <b>Primeira vez por aqui?</b> Use “Agendar agora” e escolha o seu estabelecimento — após
-                    agendar, ele fica vinculado à sua conta.
+                    <b>Você ainda não tem estabelecimentos vinculados.</b> Para agendar, o estabelecimento
+                    precisa ter o seu cadastro (telefone/WhatsApp) — recupere-o abaixo.
                   </p>
-                  <button type="button" onClick={() => setTab("estabelecimentos")} className="mt-3 text-xs font-bold text-blue-600 hover:underline">
-                    Já sou cliente em algum lugar? Recupere seu cadastro por WhatsApp →
+                  <button type="button" onClick={() => { setShowClaim(true); setTab("estabelecimentos"); }} className="mt-3 text-xs font-bold text-blue-600 hover:underline">
+                    Recuperar meu cadastro por WhatsApp →
                   </button>
                 </div>
               ) : (
@@ -713,14 +706,10 @@ export function AccountPage() {
       {picker && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-6">
           <div className="w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl bg-white p-6 sm:p-8">
-            <h3 className="text-lg font-black uppercase tracking-tight">
-              {picker === "linked" ? "Escolha o estabelecimento" : "Qual é o seu estabelecimento?"}
-            </h3>
-            <p className="mt-2 text-sm text-black/60">
-              {picker === "linked" ? "Você tem vínculo em mais de um estabelecimento." : "Escolha uma única vez — depois ele vira o seu estabelecimento."}
-            </p>
+            <h3 className="text-lg font-black uppercase tracking-tight">Escolha o estabelecimento</h3>
+            <p className="mt-2 text-sm text-black/60">Você tem vínculo em mais de um estabelecimento.</p>
             <div className="mt-5 grid gap-2">
-              {(picker === "linked" ? linkedMetas : uniqueSalons).map((s) => (
+              {linkedMetas.map((s) => (
                 <button
                   key={s.id}
                   type="button"
@@ -730,8 +719,8 @@ export function AccountPage() {
                   <span>{s.name}</span><span className="text-blue-600">agendar →</span>
                 </button>
               ))}
-              {(picker === "all" ? uniqueSalons.length : linkedMetas.length) === 0 && (
-                <p className="text-sm text-black/50">Nenhum estabelecimento disponível agora.</p>
+              {linkedMetas.length === 0 && (
+                <p className="text-sm text-black/50">Nenhum estabelecimento vinculado agora.</p>
               )}
             </div>
             <Button variant="outline" className="mt-6 w-full" onClick={() => setPicker(null)}>Cancelar</Button>
