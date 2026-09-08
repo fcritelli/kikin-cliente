@@ -69,6 +69,7 @@ export function AgendarPage() {
   const [time, setTime] = useState<string>("");
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
+  const [whatsappOptIn, setWhatsappOptIn] = useState(false);
   const [booking, setBooking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Awaited<ReturnType<typeof api.bookingBook>> | null>(null);
@@ -157,6 +158,7 @@ export function AgendarPage() {
       startAt,
       clientName: clientName.trim(),
       clientPhone: phoneDigits,
+      whatsappOptIn,
     };
     try {
       const result = await api.bookingBook(slug, payload);
@@ -164,13 +166,13 @@ export function AgendarPage() {
       // Conta logada → vínculo automático com o salão deste agendamento
       if (account && salon) {
         try {
-          await api.autoLink({ salonId: salon.id, phone: phoneDigits });
+          await api.autoLink({ salonId: salon.id, phone: phoneDigits, whatsappOptIn });
         } catch {
           // se o vínculo falhar (raro), o claim normal no /conta resolve
         }
       } else {
-        // Convidado: guarda o contexto (salão + telefone) para criar a conta já vinculada
-        sessionStorage.setItem(BOOKING_CONTEXT_KEY, JSON.stringify({ salonId: salon?.id, phone: phoneDigits }));
+        // Convidado: guarda o contexto (salão + telefone + opt-in) para criar a conta já vinculada
+        sessionStorage.setItem(BOOKING_CONTEXT_KEY, JSON.stringify({ salonId: salon?.id, phone: phoneDigits, whatsappOptIn }));
       }
       setStep("feito");
     } catch (err) {
@@ -409,9 +411,16 @@ export function AgendarPage() {
                     <Input id="bk-name" autoComplete="name" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Seu nome" />
                   </div>
                   <div>
-                    <Label htmlFor="bk-phone">Telefone (com DDD)</Label>
+                    <Label htmlFor="bk-phone">Seu WhatsApp (com DDD)</Label>
                     <Input id="bk-phone" type="tel" inputMode="tel" autoComplete="tel" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} placeholder="(11) 98765-4321" />
                   </div>
+                  <label className="flex items-start gap-2.5 text-xs leading-relaxed text-black/60 cursor-pointer">
+                    <input type="checkbox" checked={whatsappOptIn} onChange={(e) => setWhatsappOptIn(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600" />
+                    <span>
+                      Confirmo que este número é meu WhatsApp e aceito receber a confirmação do
+                      agendamento e lembretes por ele.
+                    </span>
+                  </label>
                   <div className="flex items-center justify-between rounded-xl border border-black/10 px-4 py-3">
                     <p className="text-sm font-bold">Total · {totalDuration} min</p>
                     <p className="text-sm font-black">{fmtBRL(totalPrice)}</p>

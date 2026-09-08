@@ -27,12 +27,17 @@
   `account_establishment_links` (LGPD: só hash + máscara; dedupe: mesmo telefone não vincula a
   duas contas).
 - [x] "Meus próximos horários" listando agendamentos futuros do(s) vínculo(s).
+- [x] **Modo por convite (estabelecimento-first)**: o portal não lista outros estabelecimentos;
+  o cliente entra pela página do salão (`/agendar/:slug`), agenda e o vínculo entra na conta.
+- [x] **Telefone = WhatsApp**: opt-in de consentimento no vínculo (`whatsapp_optin_at`) capturado
+  no booking/claim; "falar com o salão" via wa.me já ativo; envio/OTP plugável (ver docs/WHATSAPP.md).
 - [ ] Fase futura: telefone também por CPF; vínculo multi-estabelecimento já suportado pelo schema.
 **Agendamentos**
 - [x] Meus agendamentos futuros (do(s) estabelecimento(s) vinculados).
-- [x] Agendar novo no portal: `/agendar/:slug` (link que o salão passa) reusa o booking do Kikin
-  via proxy do gateway — serviços → profissionais → data/horário reais (/staff + /slots) → dados →
-  confirmar. Convidado continua podendo agendar sem conta.
+- [x] Agendar no portal pela página do salão: `/agendar/:slug` (link que o salão passa) reusa o
+  booking do Kikin via proxy do gateway — serviços → profissionais → data/horário reais → dados
+  (telefone = WhatsApp, com opt-in) → confirmar. Convidado continua podendo agendar sem conta;
+  o /conta não lista outros estabelecimentos (modo por convite).
 - [x] Auto-vínculo pós-booking: conta logada agenda e o client daquele salão é vinculado sozinho
   (`/links/auto`); convidado que cria a conta com o mesmo telefone entra com o salão já vinculado.
 - [x] Cancelar e remarcar pela área do cliente com regra justa (no Kikin, fonte da verdade):

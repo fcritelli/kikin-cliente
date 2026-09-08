@@ -14,11 +14,13 @@ const confirmSchema = z.object({
   salonId: z.string().uuid("Estabelecimento inválido"),
   phone: z.string().min(8, "Informe seu telefone").max(20),
   clientId: z.string().uuid("Cliente inválido"),
+  whatsappOptIn: z.boolean().optional(),
 });
 
 const autoLinkSchema = z.object({
   salonId: z.string().uuid("Estabelecimento inválido"),
   phone: z.string().min(8, "Informe seu telefone").max(20),
+  whatsappOptIn: z.boolean().optional(),
 });
 
 const cancelSchema = z.object({

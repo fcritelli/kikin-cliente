@@ -63,6 +63,10 @@
   (`CANCELLATION_WINDOW_CLOSED`, `ABUSE_LIMIT_REACHED`) repassados pelo gateway à UI.
   Remarcação = **troca atômica**: cria o novo grupo de horários e só então cancela o antigo, tudo
   numa transação; a UI pede intenção explícita antes de mostrar o seletor de novo horário.
+- Modo **por convite**: o portal não lista outros estabelecimentos — entrada só pela página do salão
+  (`/agendar/:slug`); `/conta` mostra apenas os vínculos. Telefone = WhatsApp: opt-in
+  (`account_establishment_links.whatsapp_optin_at`) + wa.me do salão; envio/OTP plugáveis
+  (`docs/WHATSAPP.md`).
 - Regras de negócio do social:
   1. E-mail do provedor já existe no portal → **vincula** `google_id`/`microsoft_id` (se for o
      primeiro acesso social), marca e-mail verificado e **entra direto** (`SUCCESS`).

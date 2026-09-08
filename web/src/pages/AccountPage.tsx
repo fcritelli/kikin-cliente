@@ -34,6 +34,15 @@ function nextDays(count: number): string[] {
   return out;
 }
 
+function waLinkFor(phone?: string | null): string | null {
+  if (!phone) return null;
+  let d = phone.replace(/\D/g, "");
+  if (!/^55\d{10,13}$/.test(d)) {
+    if (d.length === 10 || d.length === 11) d = "55" + d;
+  }
+  return d && d.length >= 12 ? `https://wa.me/${d}` : null;
+}
+
 const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleString("pt-BR", {
     weekday: "short",
@@ -61,6 +70,7 @@ export function AccountPage() {
 
   // ---- claim
   const [phone, setPhone] = useState("");
+  const [claimOptIn, setClaimOptIn] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [candidates, setCandidates] = useState<ClientCandidate[] | null>(null);
 
@@ -99,7 +109,7 @@ export function AccountPage() {
     const raw = sessionStorage.getItem(BOOKING_CONTEXT_KEY);
     if (!raw) return;
     sessionStorage.removeItem(BOOKING_CONTEXT_KEY);
-    let ctx: { salonId?: string; phone?: string };
+    let ctx: { salonId?: string; phone?: string; whatsappOptIn?: boolean };
     try {
       ctx = JSON.parse(raw);
     } catch {
@@ -109,7 +119,7 @@ export function AccountPage() {
     (async () => {
       setClaiming(true);
       try {
-        const res = await api.autoLink({ salonId: ctx.salonId!, phone: ctx.phone! });
+        const res = await api.autoLink({ salonId: ctx.salonId!, phone: ctx.phone!, whatsappOptIn: ctx.whatsappOptIn });
         if (res.link) {
           setMessage("Seu agendamento foi vinculado à sua conta!");
           await refresh();
@@ -138,26 +148,6 @@ export function AccountPage() {
     return map;
   }, [bookSalons]);
 
-  /** Picker de salões: cada NOME aparece uma única vez; os vinculados à conta vêm primeiro. */
-  const salonPicker = useMemo(() => {
-    const all = bookSalons || [];
-    const linked = links
-      .map((l) => all.find((s) => s.id === l.salonId))
-      .filter((s): s is BookingSalonMeta => Boolean(s));
-    const linkedIds = new Set(linked.map((s) => s.id));
-    const seen = new Set(linked.map((s) => s.name.trim().toLowerCase()));
-    const others: BookingSalonMeta[] = [];
-    for (const s of all) {
-      if (linkedIds.has(s.id)) continue;
-      const key = s.name.trim().toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      others.push(s);
-    }
-    others.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-    return { linked, others };
-  }, [bookSalons, links]);
-
   const startClaim = async () => {
     if (!phone || phone.replace(/\D/g, "").length < 10) return setError("Informe um telefone com DDD válido.");
     setError(null);
@@ -181,7 +171,7 @@ export function AccountPage() {
     setError(null);
     setClaiming(true);
     try {
-      await api.confirmLink({ salonId: candidate.salonId, phone, clientId: candidate.clientId });
+      await api.confirmLink({ salonId: candidate.salonId, phone, clientId: candidate.clientId, whatsappOptIn: claimOptIn });
       setCandidates(null);
       setPhone("");
       await refresh();
@@ -201,6 +191,7 @@ export function AccountPage() {
   };
 
   const askCancel = (appointment: FutureAppointment) => {
+    void loadBookingSalons();
     setModalError(null);
     setModal({ kind: "cancel", appointment });
   };
@@ -289,6 +280,10 @@ export function AccountPage() {
     navigate("/", { replace: true });
   };
 
+  const modalSalonWa = modal
+    ? waLinkFor((bookSalons || []).find((s) => s.id === modal.appointment.salonId)?.phone)
+    : null;
+
   return (
     <div className="min-h-screen w-full flex flex-col bg-white text-black">
       {/* NAV */}
@@ -342,70 +337,6 @@ export function AccountPage() {
           <div className="mt-6 rounded-xl border border-green-600/30 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">{message}</div>
         )}
 
-        {/* Agendar novo — sempre disponível */}
-        <section className="mt-8 rounded-2xl border border-black/10 bg-white p-5 sm:p-6">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-black uppercase tracking-tight">Agendar novo horário</h2>
-              <p className="text-xs text-black/50">Escolha um estabelecimento e veja os horários disponíveis.</p>
-            </div>
-            <Button size="sm" onClick={() => void loadBookingSalons()}>Agendar novo</Button>
-          </div>
-          {bookSalons && bookSalons.length > 0 && (
-            <div className="mt-4 space-y-4">
-              {salonPicker.linked.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-700 mb-1.5">
-                    Seus estabelecimentos
-                  </p>
-                  <div className="grid gap-2">
-                    {salonPicker.linked.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => navigate(`/agendar/${s.slug}`)}
-                        className="flex items-center justify-between gap-3 rounded-xl border border-blue-600 bg-blue-50 px-4 py-3 text-left text-sm font-bold hover:bg-blue-100 transition-all cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span className="h-2 w-2 rounded-full bg-blue-600" />
-                          {s.name}
-                        </span>
-                        <span className="text-blue-600">agendar →</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {salonPicker.others.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-black/40 mb-1.5">
-                    {salonPicker.linked.length > 0 ? "Outros estabelecimentos" : "Estabelecimentos"}
-                  </p>
-                  <div className="grid gap-2">
-                    {salonPicker.others.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => navigate(`/agendar/${s.slug}`)}
-                        className="flex items-center justify-between rounded-xl border border-black/10 px-4 py-3 text-left text-sm font-bold hover:border-blue-600 hover:bg-blue-50 transition-all cursor-pointer"
-                      >
-                        <span>{s.name}</span>
-                        <span className="text-blue-600">agendar →</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {salonPicker.linked.length === 0 && salonPicker.others.length === 0 && (
-                <p className="text-xs text-black/50">Nenhum estabelecimento encontrado.</p>
-              )}
-            </div>
-          )}
-          {bookSalons && bookSalons.length === 0 && (
-            <p className="mt-3 text-xs text-black/50">Nenhum estabelecimento com agendamento online disponível.</p>
-          )}
-        </section>
-
         {loading ? (
           <p className="mt-10 text-sm text-black/50">Carregando…</p>
         ) : links.length === 0 ? (
@@ -419,9 +350,15 @@ export function AccountPage() {
             </p>
             <div className="mt-6 grid gap-4">
               <div>
-                <Label htmlFor="claim-phone">Telefone usado na reserva</Label>
+                <Label htmlFor="claim-phone">Seu WhatsApp / telefone usado na reserva</Label>
                 <Input id="claim-phone" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(11) 98765-4321" />
               </div>
+              <label className="flex items-start gap-2.5 text-xs leading-relaxed text-black/60 cursor-pointer">
+                <input type="checkbox" checked={claimOptIn} onChange={(e) => setClaimOptIn(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600" />
+                <span>
+                  Confirmo que este número é meu WhatsApp e aceito receber confirmações e lembretes por ele.
+                </span>
+              </label>
               <Button type="button" onClick={startClaim} disabled={claiming} className="w-full">
                 {claiming ? "Buscando…" : "Encontrar meus agendamentos"}
               </Button>
@@ -501,6 +438,12 @@ export function AccountPage() {
                   estabelecimento). Cancelamentos frequentes ou faltas podem limitar temporariamente o
                   agendamento online — sem custo para você.
                 </p>
+                {modalSalonWa && (
+                  <a href={modalSalonWa} target="_blank" rel="noreferrer"
+                     className="mt-3 inline-flex items-center gap-2 rounded-xl border border-green-600/40 bg-green-50 px-4 py-2.5 text-xs font-bold text-green-700 hover:bg-green-100">
+                    <span>💬</span> Prefere falar? Chame o salão no WhatsApp
+                  </a>
+                )}
                 {modalError && (
                   <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{modalError}</p>
                 )}

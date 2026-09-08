@@ -16,6 +16,7 @@ export interface SalonInfo {
   id: string;
   name: string;
   slug: string;
+  phone?: string | null;
 }
 
 export interface ClientCandidate {
@@ -34,6 +35,7 @@ export interface EstablishmentLink {
   clientName: string;
   phoneMask: string;
   confirmedAt: string;
+  whatsappOptInAt: string | null;
 }
 
 export interface FutureAppointment {
@@ -58,7 +60,7 @@ function newKikin(): KikinPortalClient {
 export async function listSalons(): Promise<SalonInfo[]> {
   const data = await newKikin().listSalons();
   const salons: any[] = Array.isArray(data?.salons) ? data.salons : [];
-  return salons.map((s) => ({ id: String(s.id), name: String(s.name), slug: String(s.slug || "") }));
+  return salons.map((s) => ({ id: String(s.id), name: String(s.name), slug: String(s.slug || ""), phone: s.phone ? String(s.phone) : null }));
 }
 
 /**
@@ -85,7 +87,8 @@ export async function searchCandidates(input: { phone: string }): Promise<Client
 async function getLinkRow(id: string) {
   const res = await query<EstablishmentLink>(
     `SELECT id, salon_id AS "salonId", kikin_client_id AS "kikinClientId",
-            client_name AS "clientName", phone_masked AS "phoneMask", confirmed_at AS "confirmedAt"
+            client_name AS "clientName", phone_masked AS "phoneMask", confirmed_at AS "confirmedAt",
+            whatsapp_optin_at AS "whatsappOptInAt"
      FROM account_establishment_links WHERE id = $1`,
     [id]
   );
@@ -98,6 +101,7 @@ export async function confirmLink(input: {
   salonId: string;
   phone: string;
   kikinClientId: string;
+  whatsappOptIn?: boolean;
 }): Promise<EstablishmentLink> {
   const normalized = normalizePhoneBR(input.phone);
   if (!normalized) throw err(400, "INVALID_PHONE", "Informe um telefone válido.");
@@ -126,12 +130,22 @@ export async function confirmLink(input: {
        WHERE account_id = $1 AND salon_id = $2 AND kikin_client_id = $3`,
       [input.accountId, input.salonId, input.kikinClientId]
     );
-    if (existing.rows.length > 0) return existing.rows[0].id;
+    if (existing.rows.length > 0) {
+      // vínculo já existe: registra o opt-in se o cliente confirmou agora
+      if (input.whatsappOptIn) {
+        await client.query(
+          `UPDATE account_establishment_links SET whatsapp_optin_at = coalesce(whatsapp_optin_at, now()), updated_at = now()
+           WHERE id = $1`,
+          [existing.rows[0].id]
+        );
+      }
+      return existing.rows[0].id;
+    }
 
     const ins = await client.query<{ id: string }>(
       `INSERT INTO account_establishment_links
-         (account_id, salon_id, kikin_client_id, client_name, phone_hash, phone_masked)
-       VALUES ($1, $2, $3, $4, $5, $6)
+         (account_id, salon_id, kikin_client_id, client_name, phone_hash, phone_masked, whatsapp_optin_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id`,
       [
         input.accountId,
@@ -140,6 +154,7 @@ export async function confirmLink(input: {
         candidate.name,
         phoneHash,
         candidate.phoneMask || maskPhoneBR(normalized),
+        input.whatsappOptIn ? new Date().toISOString() : null,
       ]
     );
     return ins.rows[0].id;
@@ -154,7 +169,8 @@ export async function listLinks(accountId: string): Promise<EstablishmentLink[]>
   const [rows, salons] = await Promise.all([
     query<EstablishmentLink>(
       `SELECT id, salon_id AS "salonId", kikin_client_id AS "kikinClientId",
-              client_name AS "clientName", phone_masked AS "phoneMask", confirmed_at AS "confirmedAt"
+              client_name AS "clientName", phone_masked AS "phoneMask", confirmed_at AS "confirmedAt",
+              whatsapp_optin_at AS "whatsappOptInAt"
        FROM account_establishment_links WHERE account_id = $1 ORDER BY confirmed_at`,
       [accountId]
     ),
@@ -215,6 +231,7 @@ export async function autoLinkFromBooking(input: {
   accountId: string;
   salonId: string;
   phone: string;
+  whatsappOptIn?: boolean;
 }): Promise<EstablishmentLink | null> {
   const candidates = await searchCandidates({ phone: input.phone });
   const candidate = candidates.find((c) => c.salonId === input.salonId);
@@ -225,6 +242,7 @@ export async function autoLinkFromBooking(input: {
     salonId: input.salonId,
     phone: input.phone,
     kikinClientId: candidate.clientId,
+    whatsappOptIn: input.whatsappOptIn,
   });
 }
 

@@ -139,9 +139,9 @@ export const api = {
   myLinks: () => request<{ links: EstablishmentLink[] }>("/links/me"),
   claimClients: (body: { phone: string }) =>
     request<{ candidates: ClientCandidate[] }>("/links/claim", { method: "POST", body }),
-  confirmLink: (body: { salonId: string; phone: string; clientId: string }) =>
+  confirmLink: (body: { salonId: string; phone: string; clientId: string; whatsappOptIn?: boolean }) =>
     request<{ link: EstablishmentLink }>("/links/confirm", { method: "POST", body }),
-  autoLink: (body: { salonId: string; phone: string }) =>
+  autoLink: (body: { salonId: string; phone: string; whatsappOptIn?: boolean }) =>
     request<{ link: EstablishmentLink | null }>("/links/auto", { method: "POST", body }),
   myAppointments: () => request<{ appointments: FutureAppointment[] }>("/links/me/appointments"),
   cancelAppointment: (body: { salonId: string; appointmentId: string }) =>
@@ -171,6 +171,7 @@ export interface BookingSalonMeta {
   id: string;
   name: string;
   slug: string;
+  phone?: string | null;
   business_type?: string;
   logo_url?: string | null;
   address?: string | null;
@@ -206,6 +207,7 @@ export interface BookPayload {
   startAt: string;
   clientName: string;
   clientPhone: string;
+  whatsappOptIn?: boolean;
 }
 
 export interface BookResult {
@@ -233,6 +235,7 @@ export interface EstablishmentLink {
   clientName: string;
   phoneMask: string;
   confirmedAt: string;
+  whatsappOptInAt: string | null;
 }
 
 export interface FutureAppointment {
