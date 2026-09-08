@@ -147,7 +147,10 @@ export async function completeWhatsappSignup(input: {
   if (normalized) {
     try {
       const candidates = await searchCandidates({ phone: normalized });
+      const seenSalons = new Set<string>();
       for (const c of candidates) {
+        if (seenSalons.has(c.salonId)) continue;
+        seenSalons.add(c.salonId);
         try {
           await confirmLink({ accountId, salonId: c.salonId, phone: normalized, kikinClientId: c.clientId, whatsappOptIn: true });
           linked += 1;

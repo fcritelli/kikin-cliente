@@ -114,7 +114,8 @@ router.post("/claim", requireAuth, perUserLimiter, async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
     }
-    const candidates = await links.searchCandidates(parsed.data);
+    const accountId = (req as any).account.accountId;
+    const candidates = await links.searchCandidatesForAccount({ phone: parsed.data.phone, accountId });
     return res.json({ candidates });
   } catch (err: any) {
     return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });

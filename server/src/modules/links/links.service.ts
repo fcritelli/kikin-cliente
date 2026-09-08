@@ -96,6 +96,23 @@ async function getLinkRow(id: string) {
   return res.rows[0] || null;
 }
 
+/** Claim p/ a conta: candidatos GLOBAIS filtrados — cada salão aparece 1x e os já
+ * vinculados à conta NÃO reaparecem (idempotência: 1 vínculo por conta+salão). */
+export async function searchCandidatesForAccount(input: { phone: string; accountId: string }): Promise<ClientCandidate[]> {
+  const candidates = await searchCandidates({ phone: input.phone });
+  const links = await listLinks(input.accountId);
+  const linked = new Set(links.map((l) => l.salonId));
+  const seenSalons = new Set<string>();
+  const out: ClientCandidate[] = [];
+  for (const c of candidates) {
+    if (linked.has(c.salonId)) continue;
+    if (seenSalons.has(c.salonId)) continue;
+    seenSalons.add(c.salonId);
+    out.push(c);
+  }
+  return out;
+}
+
 /** Confirmação do candidato: revalida pelo hash no Kikin e grava o vínculo. */
 export async function confirmLink(input: {
   accountId: string;
@@ -126,21 +143,22 @@ export async function confirmLink(input: {
     if (dupAccount.rows.length > 0 && dupAccount.rows[0].account_id !== input.accountId) {
       throw err(409, "PHONE_LINKED_TO_ANOTHER_ACCOUNT", "Este telefone já está vinculado a outra conta no portal.");
     }
-    const existing = await client.query<{ id: string }>(
+    // Idempotente por SALÃO: se a conta já tem vínculo neste estabelecimento
+    // (mesmo que o Kikin tenha outro cadastro do cliente), retorna o existente.
+    const bySalon = await client.query<{ id: string }>(
       `SELECT id FROM account_establishment_links
-       WHERE account_id = $1 AND salon_id = $2 AND kikin_client_id = $3`,
-      [input.accountId, input.salonId, input.kikinClientId]
+       WHERE account_id = $1 AND salon_id = $2 LIMIT 1`,
+      [input.accountId, input.salonId]
     );
-    if (existing.rows.length > 0) {
-      // vínculo já existe: registra o opt-in se o cliente confirmou agora
+    if (bySalon.rows.length > 0) {
       if (input.whatsappOptIn) {
         await client.query(
           `UPDATE account_establishment_links SET whatsapp_optin_at = coalesce(whatsapp_optin_at, now()), updated_at = now()
            WHERE id = $1`,
-          [existing.rows[0].id]
+          [bySalon.rows[0].id]
         );
       }
-      return existing.rows[0].id;
+      return bySalon.rows[0].id;
     }
 
     const ins = await client.query<{ id: string }>(
