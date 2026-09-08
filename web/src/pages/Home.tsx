@@ -1,11 +1,8 @@
-import { CalendarHeart, ChevronRight, Sparkles } from "lucide-react";
-import { LogoFluidScroll } from "@/components/ui/LogoFluidScroll";
+import { ChevronRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
 /**
- * Página moderna de referência (kikin-cliente).
- * Direção: hero tipográfico + seção cinematográfica com scroll (lip-scroll-zoomin)
- * + CTA + rodapé — inspiração visual de "ui-ux-pro-max-skill".
+ * Página do kikin-cliente (versão curta): nav + hero + rodapé.
  */
 export function Home() {
   return (
@@ -24,9 +21,6 @@ export function Home() {
           </span>
         </a>
         <nav className="flex items-center gap-2 sm:gap-4 text-[11px] sm:text-xs font-bold uppercase tracking-wider">
-          <a href="#experiencia" className="hover:opacity-70">Experiência</a>
-          <a href="#sobre" className="hover:opacity-70">Sobre</a>
-          <a href="#cta" className="hidden sm:inline hover:opacity-70">Começar</a>
           <Button variant="outline" size="sm" className="text-white border-white bg-transparent hover:bg-white hover:text-black">
             Entrar
           </Button>
@@ -56,35 +50,6 @@ export function Home() {
             </Button>
             <Button variant="outline" size="lg" onClick={() => (window.location.href = "/login")}>
               Já tenho conta
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      {/* SCROLL CINEMÁTICO — fluidez da LOGO DO KIKIN */}
-      <section id="experiencia">
-        <LogoFluidScroll
-          label="Seu horário"
-          caption="do símbolo ao mundo: a logo cresce e revela sua agenda — simples, rápida e fluida."
-        />
-      </section>
-
-      {/* CTA */}
-      <section id="cta" className="relative bg-black text-white px-6 py-28 text-center">
-        <div className="mx-auto max-w-3xl">
-          <h2 className="text-4xl font-black uppercase tracking-tight sm:text-6xl">
-            Pronto para <span className="text-blue-400">começar?</span>
-          </h2>
-          <p className="mx-auto mt-4 max-w-xl text-xs font-semibold uppercase tracking-wider text-white/60 sm:text-sm">
-            Crie sua conta em segundos e veja seus próximos horários em um só lugar.
-          </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Button
-              size="lg"
-              className="bg-white text-black hover:bg-blue-500 hover:text-white"
-              onClick={() => (window.location.href = "/cadastro")}
-            >
-              <CalendarHeart className="h-4 w-4" /> Criar conta grátis
             </Button>
           </div>
         </div>
