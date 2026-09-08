@@ -138,6 +138,26 @@ export function AccountPage() {
     return map;
   }, [bookSalons]);
 
+  /** Picker de salões: cada NOME aparece uma única vez; os vinculados à conta vêm primeiro. */
+  const salonPicker = useMemo(() => {
+    const all = bookSalons || [];
+    const linked = links
+      .map((l) => all.find((s) => s.id === l.salonId))
+      .filter((s): s is BookingSalonMeta => Boolean(s));
+    const linkedIds = new Set(linked.map((s) => s.id));
+    const seen = new Set(linked.map((s) => s.name.trim().toLowerCase()));
+    const others: BookingSalonMeta[] = [];
+    for (const s of all) {
+      if (linkedIds.has(s.id)) continue;
+      const key = s.name.trim().toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      others.push(s);
+    }
+    others.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+    return { linked, others };
+  }, [bookSalons, links]);
+
   const startClaim = async () => {
     if (!phone || phone.replace(/\D/g, "").length < 10) return setError("Informe um telefone com DDD válido.");
     setError(null);
@@ -332,18 +352,53 @@ export function AccountPage() {
             <Button size="sm" onClick={() => void loadBookingSalons()}>Agendar novo</Button>
           </div>
           {bookSalons && bookSalons.length > 0 && (
-            <div className="mt-4 grid gap-2">
-              {bookSalons.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => navigate(`/agendar/${s.slug}`)}
-                  className="flex items-center justify-between rounded-xl border border-black/10 px-4 py-3 text-left text-sm font-bold hover:border-blue-600 hover:bg-blue-50 transition-all cursor-pointer"
-                >
-                  <span>{s.name}</span>
-                  <span className="text-blue-600">agendar →</span>
-                </button>
-              ))}
+            <div className="mt-4 space-y-4">
+              {salonPicker.linked.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-700 mb-1.5">
+                    Seus estabelecimentos
+                  </p>
+                  <div className="grid gap-2">
+                    {salonPicker.linked.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => navigate(`/agendar/${s.slug}`)}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-blue-600 bg-blue-50 px-4 py-3 text-left text-sm font-bold hover:bg-blue-100 transition-all cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-full bg-blue-600" />
+                          {s.name}
+                        </span>
+                        <span className="text-blue-600">agendar →</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {salonPicker.others.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-black/40 mb-1.5">
+                    {salonPicker.linked.length > 0 ? "Outros estabelecimentos" : "Estabelecimentos"}
+                  </p>
+                  <div className="grid gap-2">
+                    {salonPicker.others.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => navigate(`/agendar/${s.slug}`)}
+                        className="flex items-center justify-between rounded-xl border border-black/10 px-4 py-3 text-left text-sm font-bold hover:border-blue-600 hover:bg-blue-50 transition-all cursor-pointer"
+                      >
+                        <span>{s.name}</span>
+                        <span className="text-blue-600">agendar →</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {salonPicker.linked.length === 0 && salonPicker.others.length === 0 && (
+                <p className="text-xs text-black/50">Nenhum estabelecimento encontrado.</p>
+              )}
             </div>
           )}
           {bookSalons && bookSalons.length === 0 && (
