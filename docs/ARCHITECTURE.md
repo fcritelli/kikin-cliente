@@ -44,7 +44,12 @@
   refresh rotativo) e `social.service.ts` (troca/validação do código OAuth, vínculo ou criação de
   conta). Em `client_accounts`, contas sociais guardam `google_id`/`microsoft_id` (único, parcial),
   `avatar_url` e `auth_provider`; `password_hash` fica nulo quando a conta é 100% social.
-- `kikin/` — cliente HMAC da API interna do Kikin (ADR-002).
+- `links/` — vínculo conta ↔ `client(s)` do Kikin (ADR-001): claim por telefone com hash HMAC
+  (nunca número cru), candidatos mascarados, confirmação "sou eu" e listagem de próximos
+  agendamentos. Tabela `account_establishment_links` (hash + máscara; telefone único por conta).
+- `kikin/` — cliente HMAC da API interna do Kikin (ADR-002): `/internal/client-portal` com
+  `GET /salons`, `GET /clients` (hash_phone), `GET /appointments` — implementados no backend do
+  Kikin (middleware `requireClientPortalService`, salões autorizados por env).
 - Regras de negócio do social:
   1. E-mail do provedor já existe no portal → **vincula** `google_id`/`microsoft_id` (se for o
      primeiro acesso social), marca e-mail verificado e **entra direto** (`SUCCESS`).

@@ -150,6 +150,14 @@ export class KikinPortalClient {
     });
   }
 
+  /** Estabelecimentos autorizados ao portal (para o cliente escolher no claim). */
+  listSalons() {
+    return this.request({
+      path: "/salons",
+      scope: { salonIds: [] },
+    });
+  }
+
   listAppointments(input: { salonId: string; clientId: string; future?: boolean }) {
     return this.request({
       path: "/appointments",

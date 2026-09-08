@@ -17,9 +17,15 @@
   autorizado = `CLIENT_APP_URL + '/auth'` (dev `http://localhost:5174/auth`; hml `https://cliente.kikin.com.br/auth`).
 - [x] Rate limit (signup/login/forgot), proteção anti-bot.
 **Vínculo**
-- Primeiro acesso: "já tenho agendamentos? informe telefone" → casa por hash com `clients` do
-  estabelecimento (LGPD: só hash/máscara) e vincula a conta.
-- Vínculo multi-estabelecimento (grupo/multi-unidade).
+- [x] Endpoints internos no Kikin (`/internal/client-portal`) com HMAC X-Service-* (ADR-002):
+  `GET /salons`, `GET /clients` (busca por hash do telefone, candidatos mascarados) e
+  `GET /appointments` (próximos agendamentos do client vinculado). Salões autorizados via
+  `CLIENT_PORTAL_ALLOWED_SALON_IDS` no Kikin.
+- [x] Primeiro acesso: tela "Encontre seus agendamentos" — escolher estabelecimento + telefone →
+  candidatos mascarados → confirmar ("sou eu") — cria vínculo `account_establishment_links`
+  (LGPD: só hash + máscara; dedupe: mesmo telefone não vincula a duas contas).
+- [x] "Meus próximos horários" listando agendamentos futuros do(s) vínculo(s).
+- [ ] Fase futura: telefone também por CPF; vínculo multi-estabelecimento já suportado pelo schema.
 **Agendamentos**
 - Meus agendamentos futuros (do(s) estabelecimento(s) vinculados).
 - Cancelar (com confirmação) e remarcar (regra de janela simples).

@@ -134,7 +134,49 @@ export const api = {
 
   resetPassword: (token: string, password: string) =>
     request<{ ok: true }>("/accounts/reset-password", { method: "POST", body: { token, password } }),
+
+  // ---- vínculo cliente ↔ estabelecimento (ADR-001)
+  linkSalons: () => request<{ salons: SalonInfo[] }>("/links/salons"),
+  myLinks: () => request<{ links: EstablishmentLink[] }>("/links/me"),
+  claimClients: (body: { salonId: string; phone: string }) =>
+    request<{ candidates: ClientCandidate[] }>("/links/claim", { method: "POST", body }),
+  confirmLink: (body: { salonId: string; phone: string; clientId: string }) =>
+    request<{ link: EstablishmentLink }>("/links/confirm", { method: "POST", body }),
+  myAppointments: () => request<{ appointments: FutureAppointment[] }>("/links/me/appointments"),
 };
+
+export interface SalonInfo {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface ClientCandidate {
+  clientId: string;
+  name: string;
+  phoneMask: string;
+}
+
+export interface EstablishmentLink {
+  id: string;
+  salonId: string;
+  salonName?: string;
+  kikinClientId: string;
+  clientName: string;
+  phoneMask: string;
+  confirmedAt: string;
+}
+
+export interface FutureAppointment {
+  id: string;
+  salonId: string;
+  salonName?: string;
+  startAt: string;
+  endAt: string;
+  status: string;
+  serviceName: string | null;
+  staffName: string | null;
+}
 
 // ---------------------------------------------------------------- oauth urls (espelha o Kikin)
 
