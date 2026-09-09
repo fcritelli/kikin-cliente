@@ -1,0 +1,96 @@
+# ============================================================
+# kikin-cliente — Homologação (HML)
+#
+# Mesmo padrão do /kikin: rede externa `kikin` + Traefik.
+#   Domínio:      hml-cliente.kikin.com.br  (DNS/Cloudflare aponta para o servidor)
+#   Volumes:      /home/kikin-cliente/data/... (KIKIN_CLIENTE_VOLUME_PATH)
+#   Deploy:       cp .env.hml.example .env && preencha; docker compose -f docker-compose.hml.yml up -d --build
+#   Migrações:    docker compose -f docker-compose.hml.yml run --rm kikin-cliente-server npm run db:migrate
+# ============================================================
+services:
+  # ----------------------------------------------------------
+  # 🗄️ PostgreSQL (portal do cliente)
+  # ----------------------------------------------------------
+  kikin-cliente-db:
+    image: postgres:15-alpine
+    container_name: kikin-cliente-db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-kikin_cliente}
+    volumes:
+      - ${KIKIN_CLIENTE_VOLUME_PATH:-/home/kikin-cliente}/data/postgres:/var/lib/postgresql/data
+    networks:
+      - kikin
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-kikin_cliente} || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  # ----------------------------------------------------------
+  # 🚀 Gateway (API do portal) — público SOMENTE via /api (Traefik)
+  # ----------------------------------------------------------
+  kikin-cliente-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: kikin-cliente-server
+    restart: unless-stopped
+    depends_on:
+      kikin-cliente-db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3100
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@kikin-cliente-db:5432/${POSTGRES_DB:-kikin_cliente}
+      # Kikin (backend) na MESMA rede docker: endpoints internos (HMAC ADR-002) e booking público
+      KIKIN_API_URL: http://kikin-backend:3000/internal/client-portal
+      KIKIN_PUBLIC_URL: http://kikin-backend:3000/api/v1
+      # HML ainda sem SMTP real/provedor: tokens de verificação e código OTP voltam na resposta.
+      # (Remover estas duas linhas quando for produção.)
+      EMAIL_VERIFY_RETURN_TOKEN: "true"
+      WHATSAPP_DEV_RETURN_CODE: "true"
+    networks:
+      - kikin
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=kikin"
+      - "traefik.http.routers.kikin-cliente-api.rule=Host(`hml-cliente.kikin.com.br`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.kikin-cliente-api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.kikin-cliente-api.tls=true"
+      - "traefik.http.services.kikin-cliente-api.loadbalancer.server.port=3100"
+
+  # ----------------------------------------------------------
+  # 💻 Frontend (Vite + React + Nginx) — SPA
+  # ----------------------------------------------------------
+  kikin-cliente-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api/v1
+    container_name: kikin-cliente-web
+    restart: unless-stopped
+    depends_on:
+      - kikin-cliente-server
+    networks:
+      - kikin
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=kikin"
+      - "traefik.http.routers.kikin-cliente-web.rule=Host(`hml-cliente.kikin.com.br`)"
+      - "traefik.http.routers.kikin-cliente-web.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.kikin-cliente-web.tls=true"
+      - "traefik.http.services.kikin-cliente-web.loadbalancer.server.port=80"
+
+networks:
+  kikin:
+    name: kikin
+    external: true
