@@ -1,6 +1,7 @@
 import { query, withTransaction } from "../../db.js";
 import { config } from "../../config.js";
 import { decryptPhone, sendWhatsApp } from "../../services/whatsapp/whatsapp.service.js";
+import { pushToAccount } from "../push/push.service.js";
 import { err } from "../accounts/accounts.service.js";
 import { KikinPortalClient } from "../kikin/kikin-client.js";
 import { hashPhoneBR, maskPhoneBR, normalizePhoneBR } from "../../utils/phone.js";
@@ -358,6 +359,7 @@ export async function bookNewSalonAndLink(input: {
       startAt: input.startAt,
       holdToken: input.holdToken || null,
     });
+    void pushBookingConfirmed(input.accountId, fmtWhenBr(input.startAt));
     return { result, link: existing, clientId: existing.kikinClientId, linkedNow: false };
   }
 
@@ -370,6 +372,7 @@ export async function bookNewSalonAndLink(input: {
     phone: normalized,
     name: input.name || null,
   });
+  void pushBookingConfirmed(input.accountId, fmtWhenBr(input.startAt));
   const clientId = String(result?.clientId || "");
   let link: EstablishmentLink | null = null;
   if (clientId) {
@@ -522,6 +525,15 @@ function fmtWhenBr(iso: string): string {
   }
 }
 
+/** Push de "booking confirmado" para a conta (fail-soft; inscrição é o consentimento). */
+function pushBookingConfirmed(accountId: string, when: string): void {
+  void pushToAccount(accountId, {
+    title: "Horário confirmado",
+    body: `Seu horário foi confirmado${when ? ` para ${when}` : ""}.`,
+    url: "/conta",
+  });
+}
+
 /** Avisos por WhatsApp (cliente quando opt-in; salão nos eventos que exigem ação). */
 async function notifyChanges(input: {
   accountId: string;
@@ -529,15 +541,23 @@ async function notifyChanges(input: {
   kind: "booked" | "canceled" | "rescheduled";
   when?: string;
 }) {
+  const texts: Record<string, string> = {
+    booked: `Seu horário em ${input.link.salonName || "estabelecimento"} foi confirmado${input.when ? ` para ${input.when}` : ""}.`,
+    canceled: `Seu horário em ${input.link.salonName || "estabelecimento"} foi cancelado.`,
+    rescheduled: `Seu horário foi remarcado${input.when ? ` para ${input.when}` : ""} no ${input.link.salonName || "estabelecimento"}.`,
+  };
   const clientPhone = await decryptedAccountPhone(input.accountId).catch(() => null);
   if (clientPhone && input.link.whatsappOptInAt) {
-    const map: Record<string, string> = {
-      booked: `Seu horário em ${input.link.salonName || "estabelecimento"} foi confirmado${input.when ? ` para ${input.when}` : ""}.`,
-      canceled: `Seu horário em ${input.link.salonName || "estabelecimento"} foi cancelado.`,
-      rescheduled: `Seu horário foi remarcado${input.when ? ` para ${input.when}` : ""} no ${input.link.salonName || "estabelecimento"}.`,
-    };
-    await sendWhatsApp(clientPhone, map[input.kind]);
+    await sendWhatsApp(clientPhone, texts[input.kind]);
   }
+  // Push (canal independente): avisa a conta mesmo sem opt-in de WhatsApp — a
+  // inscrição push é o consentimento. Envio fail-soft, nunca derruba o fluxo.
+  const titles: Record<string, string> = {
+    booked: "Horário confirmado",
+    canceled: "Horário cancelado",
+    rescheduled: "Horário remarcado",
+  };
+  void pushToAccount(input.accountId, { title: titles[input.kind], body: texts[input.kind], url: "/conta" });
   try {
     const salons = await listSalons();
     const meta = salons.find((x) => x.id === input.link.salonId);

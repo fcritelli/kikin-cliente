@@ -15,6 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { DateCalendar } from "@/components/ui/DateCalendar";
 import { subscribeRealtime } from "@/lib/realtime";
+import { PushNotificationsCard } from "@/components/PushNotificationsCard";
 
 type Tab = "dashboard" | "consultas" | "estabelecimentos" | "perfil";
 
@@ -600,6 +601,8 @@ export function AccountPage() {
                     </div>
                   )}
                 </section>
+
+                <PushNotificationsCard />
 
                 <section className="rounded-2xl border border-black/10 bg-white p-5">
                   <p className="text-xs font-bold uppercase tracking-[0.2em] text-black/40">Opções da área do cliente</p>

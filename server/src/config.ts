@@ -45,6 +45,11 @@ const schema = z.object({
   // Chave AES-256-GCM para criptografar números em repouso (enviar mensagem exige o número;
   // LGPD: nunca texto plano no banco). Dev default; produção deve setar.
   WHATSAPP_PHONE_KEY: z.string().min(16).optional(),
+  // ---- Web Push (VAPID). Sem as 3 variáveis o recurso fica DESABILITADO:
+  // os endpoints respondem 503 PUSH_NOT_CONFIGURED e enviar é no-op seguro.
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().optional(), // mailto:contato@dominio.com
 });
 
 function cleanTrailingSlash(value: string): string {
