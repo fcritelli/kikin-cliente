@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { cn } from "@/lib/utils";
+import { subscribeRealtime } from "@/lib/realtime";
 
 type Step = "servicos" | "profissionais" | "horario" | "dados" | "feito";
 
@@ -66,9 +67,15 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
   const [done, setDone] = useState<{ appointments: { appointment_id: string; service_name: string; start_at: string }[]; staff_name?: string } | null>(null);
   const notified = useRef(false);
   const holdRef = useRef<string | null>(null);
+  /** Hold criado por ESTE navegador — para ignorar o eco do próprio hold. */
+  const ownHoldRef = useRef<{ staffId: string; startAt: string } | null>(null);
 
   const serviceIds = useMemo(() => selectedServices.map((s) => s.id), [selectedServices]);
   const slug = salon.slug;
+
+  // Espelho do estado para o handler de realtime (sem re-subscribir a cada render).
+  const viewRef = useRef({ step, date, time, staffId, done, busy, serviceIds });
+  viewRef.current = { step, date, time, staffId, done, busy, serviceIds };
 
   useEffect(() => {
     (async () => {
@@ -106,11 +113,76 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
       .catch(() => setSlots([]));
   }, [date, serviceIds.join(","), staffId, reloadTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const reserveHold = async (startAt: string, effStaffId: string) => {
+  // Realtime: outra pessoa (ou a secretária) mexeu na agenda deste estabelecimento.
+  // Atualiza os horários em aberto e, se o horário escolhido foi tomado enquanto o
+  // cliente preenchia os dados, volta para a lista com a mensagem de conflito.
+  useEffect(() => {
+    return subscribeRealtime((ev) => {
+      const v = viewRef.current;
+      if (v.done || ev.salonId !== salon.id) return;
+
+      const AFFECTS_AVAILABILITY = new Set([
+        "appointment.created",
+        "appointment.updated",
+        "appointment.cancelled",
+        "appointment.deleted",
+        "hold.created",
+        "hold.released",
+        "hold.expired",
+      ]);
+      if (!AFFECTS_AVAILABILITY.has(ev.type)) return;
+
+      // Eco do próprio hold (este navegador reservou o horário): não trata como conflito.
+      const isOwnHold =
+        ev.type === "hold.created" &&
+        ownHoldRef.current !== null &&
+        ev.staffId === ownHoldRef.current.staffId &&
+        ev.startAt === ownHoldRef.current.startAt;
+      if (isOwnHold) return;
+
+      // O horário selecionado foi reservado/ocupado por outra pessoa?
+      let selectedStartIso = "";
+      if (v.date && v.time) {
+        const [yy, mm, dd] = v.date.split("-").map(Number);
+        const [hh, min] = v.time.split(":").map(Number);
+        selectedStartIso = new Date(yy, mm - 1, dd, hh, min).toISOString();
+      }
+      const hitSelected =
+        v.step === "dados" &&
+        !!v.time &&
+        !!v.staffId &&
+        !!ev.startAt &&
+        ev.startAt === selectedStartIso &&
+        ev.staffId === v.staffId;
+
+      const takenByOther = ev.type === "appointment.created" || ev.type === "hold.created";
+      if (takenByOther && hitSelected && !v.busy) {
+        releaseCurrentHold();
+        setError("Esse horário acabou de ser reservado por outra pessoa no mesmo minuto. Atualizamos a agenda — escolha outro.");
+        setTime("");
+        setStep("horario");
+        setReloadTick((t) => t + 1);
+        return;
+      }
+
+      if (v.date && v.serviceIds.length > 0) {
+        setReloadTick((t) => t + 1);
+      }
+    });
+  }, [salon.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const releaseCurrentHold = () => {
     if (holdRef.current) void api.releaseHold(holdRef.current).catch(() => undefined);
+    holdRef.current = null;
+    ownHoldRef.current = null;
+  };
+
+  const reserveHold = async (startAt: string, effStaffId: string) => {
+    releaseCurrentHold();
     try {
       const res = await api.bookingHold({ salonId: salon.id, staffId: effStaffId, serviceIds, startAt });
       holdRef.current = res.hold.token;
+      ownHoldRef.current = { staffId: effStaffId, startAt };
     } catch {
       holdRef.current = null; // hold é consultivo; segue mesmo se falhar
     }
@@ -121,7 +193,7 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
 
   useEffect(() => {
     return () => {
-      if (holdRef.current) void api.releaseHold(holdRef.current).catch(() => undefined);
+      releaseCurrentHold();
     };
   }, []);
 
@@ -166,8 +238,7 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
         // Horário foi ocupado entre a busca e o confirmar: mantém o MESMO profissional,
         // volta para a lista e a atualiza (o horário tomado não aparece mais).
         setError("Esse horário acabou de ser reservado por outra pessoa no mesmo minuto. Atualizamos a agenda — escolha outro.");
-        if (holdRef.current) void api.releaseHold(holdRef.current).catch(() => undefined);
-        holdRef.current = null;
+        releaseCurrentHold();
         setTime("");
         setStep("horario");
         setReloadTick((t) => t + 1);

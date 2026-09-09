@@ -15,6 +15,7 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DateCalendar } from "@/components/ui/DateCalendar";
+import { subscribeRealtime } from "@/lib/realtime";
 
 type Tab = "dashboard" | "consultas" | "estabelecimentos" | "perfil";
 
@@ -128,6 +129,29 @@ export function AccountPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Realtime: a secretária (ou outra tela) mudou a agenda de um estabelecimento
+  // vinculado — atualiza "Consultas" sem mostrar loading.
+  useEffect(() => {
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = subscribeRealtime((ev) => {
+      if (!ev.type.startsWith("appointment.")) return;
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(async () => {
+        try {
+          const apptRes = await api.myAppointments();
+          setAppointments(apptRes.appointments);
+        } catch {
+          // mantém o que já está na tela
+        }
+        setHistory(null); // histórico recarrega ao abrir a aba
+      }, 300);
+    });
+    return () => {
+      unsubscribe();
+      if (debounce) clearTimeout(debounce);
+    };
+  }, []);
 
   useEffect(() => {
     if (account) {
