@@ -147,7 +147,7 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-6">
-      <div className="w-full sm:max-w-xl max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-6 sm:p-8">
+      <div className="w-full sm:max-w-xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl bg-white p-5 sm:p-8 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-700">Agendar no seu estabelecimento</p>
@@ -248,7 +248,7 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
                       const available = !staffId || s.available_staff.includes(staffId);
                       return (
                         <button key={s.start_at} type="button" disabled={!available} onClick={() => { setTime(s.start_at); setStep("dados"); }}
-                          className={cn("rounded-lg border py-2 text-sm font-bold cursor-pointer",
+                          className={cn("h-10 rounded-lg border text-sm font-bold cursor-pointer",
                             !available ? "opacity-30 cursor-not-allowed" : time === s.start_at ? "border-blue-600 bg-blue-600 text-white" : "border-black/15 hover:border-blue-600")}>
                           {s.start_at}
                         </button>

@@ -205,9 +205,9 @@ export function AccountPage() {
 
   // ---- agendar
   const openAgendar = async () => {
-    await ensureSalons();
+    const list = await ensureSalons();
     const linkedIds = new Set(links.map((l) => l.salonId));
-    const linked = (salons || []).filter((s) => linkedIds.has(s.id));
+    const linked = list.filter((s) => linkedIds.has(s.id));
     if (linked.length === 1) setBooking(linked[0]);
     else if (linked.length > 1) setPicker("linked");
     else {
@@ -694,7 +694,7 @@ export function AccountPage() {
       {/* Picker */}
       {picker && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-6">
-          <div className="w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl bg-white p-6 sm:p-8">
+          <div className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl bg-white p-5 sm:p-8 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             <h3 className="text-lg font-black uppercase tracking-tight">Escolha o estabelecimento</h3>
             <p className="mt-2 text-sm text-black/60">Você tem vínculo em mais de um estabelecimento.</p>
             <div className="mt-5 grid gap-2">
@@ -730,7 +730,7 @@ export function AccountPage() {
       {/* Ações cancelar/remarcar */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-6">
-          <div className="w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl bg-white p-6 sm:p-8">
+          <div className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl bg-white p-5 sm:p-8 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             {modal.kind === "cancel" && (
               <>
                 <h3 className="text-lg font-black uppercase tracking-tight">Cancelar este horário?</h3>
@@ -791,7 +791,7 @@ export function AccountPage() {
                   <div className="mt-4 grid grid-cols-4 gap-2">
                     {slots.map((s) => (
                       <button key={s.start_at} type="button" onClick={() => confirmReschedule(s.start_at)}
-                        className={cn("rounded-lg border py-2 text-sm font-bold cursor-pointer",
+                        className={cn("h-10 rounded-lg border text-sm font-bold cursor-pointer",
                           slotTime === s.start_at ? "border-blue-600 bg-blue-600 text-white" : "border-black/15 hover:border-blue-600")}>
                         {s.start_at}
                       </button>
