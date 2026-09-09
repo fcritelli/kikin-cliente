@@ -147,7 +147,7 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
       if (isConflict) {
         // Horário foi ocupado entre a busca e o confirmar: mantém o MESMO profissional,
         // volta para a lista e a atualiza (o horário tomado não aparece mais).
-        setError("Este horário acabou de ser preenchido. Escolha outro horário — seu profissional continua o mesmo.");
+        setError("Esse horário acabou de ser reservado por outra pessoa no mesmo minuto. Atualizamos a agenda — escolha outro.");
         setTime("");
         setStep("horario");
         setReloadTick((t) => t + 1);

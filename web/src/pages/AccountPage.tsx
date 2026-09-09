@@ -368,7 +368,7 @@ export function AccountPage() {
         code.includes("CONFLICT") ||
         (err instanceof ApiError && /indispon[íi]vel|conflito/i.test(err.message));
       if (isConflict) {
-        setModalError("Este horário acabou de ser preenchido. Escolha outro horário — o profissional continua o mesmo.");
+        setModalError("Esse horário acabou de ser reservado por outra pessoa no mesmo minuto. Atualizamos a agenda — escolha outro.");
         setSlotTime("");
         setTimeout(() => void pickSlotDate(slotDate), 250);
       } else {
