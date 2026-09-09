@@ -61,6 +61,7 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
   const [whatsappOptIn, setWhatsappOptIn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
   // shape unificada do retorno (public proxy ou interno por client)
   const [done, setDone] = useState<{ appointments: { appointment_id: string; service_name: string; start_at: string }[]; staff_name?: string } | null>(null);
   const notified = useRef(false);
@@ -102,7 +103,7 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
       .bookingSlots(slug, { date, serviceIds, staffId })
       .then(setSlots)
       .catch(() => setSlots([]));
-  }, [date, serviceIds.join(","), staffId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [date, serviceIds.join(","), staffId, reloadTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_min || 0), 0);
   const totalPrice = selectedServices.reduce((acc, s) => acc + (s.price || 0), 0);
@@ -139,7 +140,20 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
         onSuccess({ result, phone: linkedClient ? "" : phoneDigits, whatsappOptIn });
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Não foi possível confirmar o horário.");
+      const code = err instanceof ApiError ? err.code : "";
+      const isConflict =
+        code.includes("CONFLICT") ||
+        (err instanceof ApiError && /indispon[íi]vel|conflito/i.test(err.message));
+      if (isConflict) {
+        // Horário foi ocupado entre a busca e o confirmar: mantém o MESMO profissional,
+        // volta para a lista e a atualiza (o horário tomado não aparece mais).
+        setError("Este horário acabou de ser preenchido. Escolha outro horário — seu profissional continua o mesmo.");
+        setTime("");
+        setStep("horario");
+        setReloadTick((t) => t + 1);
+      } else {
+        setError(err instanceof ApiError ? err.message : "Não foi possível confirmar o horário.");
+      }
     } finally {
       setBusy(false);
     }

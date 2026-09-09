@@ -363,7 +363,17 @@ export function AccountPage() {
       setMessage("Horário remarcado!");
       await refresh();
     } catch (err) {
-      setModalError(err instanceof ApiError ? err.message : "Não foi possível remarcar.");
+      const code = err instanceof ApiError ? err.code : "";
+      const isConflict =
+        code.includes("CONFLICT") ||
+        (err instanceof ApiError && /indispon[íi]vel|conflito/i.test(err.message));
+      if (isConflict) {
+        setModalError("Este horário acabou de ser preenchido. Escolha outro horário — o profissional continua o mesmo.");
+        setSlotTime("");
+        setTimeout(() => void pickSlotDate(slotDate), 250);
+      } else {
+        setModalError(err instanceof ApiError ? err.message : "Não foi possível remarcar.");
+      }
     } finally {
       setBusy(false);
     }
