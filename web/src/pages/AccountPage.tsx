@@ -14,6 +14,7 @@ import {
   type FutureAppointment,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { DateCalendar } from "@/components/ui/DateCalendar";
 
 type Tab = "dashboard" | "consultas" | "estabelecimentos" | "perfil";
 
@@ -31,18 +32,6 @@ function waLinkFor(phone?: string | null): string | null {
   return d && d.length >= 12 ? `https://wa.me/${d}` : null;
 }
 
-function nextDays(count: number): string[] {
-  const out: string[] = [];
-  const base = new Date();
-  base.setDate(base.getDate() + 1);
-  base.setHours(0, 0, 0, 0);
-  for (let i = 0; i < count; i++) {
-    const d = new Date(base);
-    d.setDate(base.getDate() + i);
-    out.push(d.toISOString().slice(0, 10));
-  }
-  return out;
-}
 
 const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleString("pt-BR", {
@@ -795,19 +784,7 @@ export function AccountPage() {
               <>
                 <h3 className="text-lg font-black uppercase tracking-tight">Escolha o novo horário</h3>
                 <p className="mt-2 text-sm text-black/60">{modal.servicesLabel} · mesmo profissional</p>
-                <div className="mt-5 flex gap-2 overflow-x-auto pb-2">
-                  {nextDays(14).map((d) => {
-                    const [yy, mm, dd] = d.split("-").map(Number);
-                    const label = new Date(yy, mm - 1, dd).toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" });
-                    return (
-                      <button key={d} type="button" onClick={() => pickSlotDate(d)}
-                        className={cn("shrink-0 rounded-xl border px-3 py-2 text-xs font-bold uppercase cursor-pointer",
-                          slotDate === d ? "border-blue-600 bg-blue-600 text-white" : "border-black/15 hover:border-black/40")}>
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
+                <DateCalendar value={slotDate} onSelect={(d) => void pickSlotDate(d)} />
                 {slotDate && (slots.length === 0 ? (
                   <p className="mt-4 text-sm text-black/50">Nenhum horário livre neste dia para o profissional.</p>
                 ) : (

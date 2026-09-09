@@ -8,6 +8,7 @@ import {
   type BookingStaff,
 } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { DateCalendar } from "@/components/ui/DateCalendar";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
@@ -17,18 +18,6 @@ type Step = "servicos" | "profissionais" | "horario" | "dados" | "feito";
 
 const fmtBRL = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
-function nextDays(count: number): string[] {
-  const out: string[] = [];
-  const base = new Date();
-  base.setDate(base.getDate() + 1);
-  base.setHours(0, 0, 0, 0);
-  for (let i = 0; i < count; i++) {
-    const d = new Date(base);
-    d.setDate(base.getDate() + i);
-    out.push(d.toISOString().slice(0, 10));
-  }
-  return out;
-}
 
 function fmtWhen(iso: string): string {
   return new Date(iso).toLocaleString("pt-BR", {
@@ -250,19 +239,7 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
             {step === "horario" && (
               <>
                 <p className="mt-5 text-xs font-bold uppercase tracking-[0.2em] text-black/50">3 · Dia e horário</p>
-                <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
-                  {nextDays(14).map((d) => {
-                    const [yy, mm, dd] = d.split("-").map(Number);
-                    const label = new Date(yy, mm - 1, dd).toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" });
-                    return (
-                      <button key={d} type="button" onClick={() => { setDate(d); setTime(""); }}
-                        className={cn("shrink-0 rounded-xl border px-3 py-2 text-xs font-bold uppercase cursor-pointer",
-                          date === d ? "border-blue-600 bg-blue-600 text-white" : "border-black/15 hover:border-black/40")}>
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
+                <DateCalendar value={date} onSelect={(d) => { setDate(d); setTime(""); }} />
                 {date && (slots.length === 0 ? (
                   <p className="mt-4 text-sm text-black/50">Nenhum horário livre neste dia.</p>
                 ) : (
