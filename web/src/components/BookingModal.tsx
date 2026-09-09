@@ -240,22 +240,34 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
               <>
                 <p className="mt-5 text-xs font-bold uppercase tracking-[0.2em] text-black/50">3 · Dia e horário</p>
                 <DateCalendar value={date} onSelect={(d) => { setDate(d); setTime(""); }} />
-                {date && (slots.length === 0 ? (
-                  <p className="mt-4 text-sm text-black/50">Nenhum horário livre neste dia.</p>
-                ) : (
-                  <div className="mt-4 grid grid-cols-4 sm:grid-cols-5 gap-2">
-                    {slots.map((s) => {
-                      const available = !staffId || s.available_staff.includes(staffId);
-                      return (
-                        <button key={s.start_at} type="button" disabled={!available} onClick={() => { setTime(s.start_at); setStep("dados"); }}
+                {!staffId && (
+                  <p className="mt-2 text-xs text-black/50">
+                    Mostramos horários livres de pelo menos um profissional — ao escolher, atribuímos o disponível.
+                  </p>
+                )}
+                {(() => {
+                  const visibleSlots = staffId ? slots.filter((s) => s.available_staff.includes(staffId)) : slots;
+                  if (visibleSlots.length === 0) {
+                    return <p className="mt-4 text-sm text-black/50">Nenhum horário livre neste dia para o profissional.</p>;
+                  }
+                  return (
+                    <div className="mt-4 grid grid-cols-4 sm:grid-cols-5 gap-2">
+                      {visibleSlots.map((s) => (
+                        <button key={s.start_at} type="button"
+                          onClick={() => {
+                            setTime(s.start_at);
+                            // Sem preferência: atribui o primeiro profissional livre no horário
+                            if (!staffId && s.available_staff[0]) setStaffId(s.available_staff[0]);
+                            setStep("dados");
+                          }}
                           className={cn("h-10 rounded-lg border text-sm font-bold cursor-pointer",
-                            !available ? "opacity-30 cursor-not-allowed" : time === s.start_at ? "border-blue-600 bg-blue-600 text-white" : "border-black/15 hover:border-blue-600")}>
+                            time === s.start_at ? "border-blue-600 bg-blue-600 text-white" : "border-black/15 hover:border-blue-600")}>
                           {s.start_at}
                         </button>
-                      );
-                    })}
-                  </div>
-                ))}
+                      ))}
+                    </div>
+                  );
+                })()}
               </>
             )}
 
@@ -266,7 +278,7 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
                   <p className="font-bold">{selectedServices.map((s) => s.name).join(" + ")}</p>
                   <p className="text-black/60">
                     {new Date(`${date}T00:00:00`).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })} às {time}
-                    {" · "}{staff.find((p) => p.id === staffId)?.name || "sem preferência"}
+                    {" · "}{staff.find((p) => p.id === staffId)?.name || (staffId ? "profissional atribuído automaticamente" : "sem preferência")}
                   </p>
                 </div>
                 <div className="mt-5 grid gap-4">
