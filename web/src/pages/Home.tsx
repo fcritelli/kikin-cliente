@@ -57,10 +57,10 @@ export function Home() {
           <span className="inline-flex items-center gap-2 rounded-full border border-blue-600/30 bg-blue-600/10 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.25em] text-blue-700">
             <Sparkles className="h-3 w-3" /> Novo portal do cliente
           </span>
-          <h1 className="mt-6 text-[13vw] leading-[0.9] font-black uppercase tracking-[-0.04em] sm:text-[11vw] md:text-[7rem] lg:text-[8.5rem]">
+          <h1 className="mt-6 text-[11vw] leading-[1.02] font-display font-semibold tracking-[0.01em] sm:text-[8vw] md:text-[5.25rem] lg:text-[6.25rem]">
             Conectando você
             <br />
-            <span className="text-blue-600">ao seu lugar preferido.</span>
+            <span className="italic text-blue-600">ao seu lugar preferido.</span>
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-xs font-bold uppercase leading-relaxed tracking-wider text-black/70 sm:text-sm md:text-base">
             Agende, remaque e cancele horários no salão, barbeiro ou clínica — direto do seu
