@@ -124,6 +124,17 @@ export function SalonBookingPage() {
             <h1 className="text-2xl font-black uppercase tracking-tight">Ops…</h1>
             <p className="mt-2 max-w-md text-sm text-black/60">{loadError}</p>
           </>
+        ) : salon?.online_booking_enabled === false ? (
+          <div className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-black/5 text-2xl">🔒</div>
+            <h2 className="mt-4 text-xl font-black uppercase tracking-tight">Agendamento indisponível no momento</h2>
+            <p className="mt-3 text-sm leading-relaxed text-black/60">
+              Este estabelecimento ainda não ativou a Área do Cliente. Tente novamente mais tarde.
+            </p>
+            <Button variant="outline" className="mt-6 w-full" onClick={() => navigate("/")}>
+              Voltar
+            </Button>
+          </div>
         ) : !salon ? (
           <p className="text-sm text-black/50">Carregando…</p>
         ) : justBooked ? (

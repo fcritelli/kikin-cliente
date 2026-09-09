@@ -29,17 +29,20 @@ export function AuthPage({ mode }: AuthPageProps) {
   const [busy, setBusy] = useState(false);
   const created = searchParams.get("criada") === "1";
   const nextParam = searchParams.get("next");
+  const refParam = searchParams.get("ref");
   const nextValid = nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : null;
+  // Convite do estabelecimento: /cadastro?ref=<salão> → agenda naquele salão após entrar.
+  const targetNext = nextValid || (refParam ? `/e/${encodeURIComponent(refParam)}` : null);
 
   // Próxima tela após entrar (link do estabelecimento, ex.: /e/:slug).
   // Guarda em sessionStorage para os fluxos que redirecionam (OAuth/WhatsApp).
   useEffect(() => {
-    if (nextValid) {
-      sessionStorage.setItem("kc_next", nextValid);
+    if (targetNext) {
+      sessionStorage.setItem("kc_next", targetNext);
     } else {
       sessionStorage.removeItem("kc_next");
     }
-  }, [nextValid]);
+  }, [targetNext]);
 
   const afterLogin = () => {
     const raw = sessionStorage.getItem("kc_next");
@@ -47,7 +50,7 @@ export function AuthPage({ mode }: AuthPageProps) {
     return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/conta";
   };
 
-  const loginWithNext = (qs: string) => `/login?${qs}${nextValid ? `&next=${encodeURIComponent(nextValid)}` : ""}`;
+  const loginWithNext = (qs: string) => `/login?${qs}${targetNext ? `&next=${encodeURIComponent(targetNext)}` : ""}`;
 
   // ---- formulário e-mail/senha
   const [fullName, setFullName] = useState("");
