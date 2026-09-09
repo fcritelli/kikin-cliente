@@ -142,6 +142,37 @@ router.post("/confirm", requireAuth, perUserLimiter, async (req, res) => {
   }
 });
 
+const holdCreateSchema = z.object({
+  salonId: z.string().uuid(),
+  staffId: z.string().uuid(),
+  serviceIds: z.array(z.string().uuid()).min(1),
+  startAt: z.string().min(1),
+});
+
+// POST /api/v1/links/hold — reserva 3min ao selecionar o horário
+router.post("/hold", requireAuth, perUserLimiter, async (req, res) => {
+  try {
+    const parsed = holdCreateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
+    const result = await links.createBookingHold(parsed.data);
+    return res.status(201).json(result);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
+});
+
+// DELETE /api/v1/links/hold — libera (abandonou/fechou)
+router.delete("/hold", requireAuth, perUserLimiter, async (req, res) => {
+  try {
+    const token = String((req.body as any)?.token || "");
+    if (!token) return res.status(400).json({ code: "VALIDATION_ERROR", error: "token obrigatório" });
+    await links.releaseBookingHold(token);
+    return res.json({ ok: true });
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
+});
+
 // POST /api/v1/links/auto — vínculo silencioso pós-booking (mesmo salão do agendamento)
 router.post("/auto", requireAuth, perUserLimiter, async (req, res) => {
   try {

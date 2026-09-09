@@ -172,7 +172,7 @@ export class KikinPortalClient {
   }
 
   /** Agenda para o client vinculado (portal único método — sem telefone). */
-  bookForClient(input: { salonId: string; clientId: string; serviceIds: string[]; staffId?: string | null; startAt: string }) {
+  bookForClient(input: { salonId: string; clientId: string; serviceIds: string[]; staffId?: string | null; startAt: string; holdToken?: string | null }) {
     return this.request({
       method: "POST",
       path: "/book",
@@ -182,8 +182,28 @@ export class KikinPortalClient {
         serviceIds: input.serviceIds,
         staffId: input.staffId || null,
         startAt: input.startAt,
+        holdToken: input.holdToken || null,
       },
       scope: { salonIds: [input.salonId] },
+    });
+  }
+
+  /** Reserva temporária (3 min) ao selecionar horário — bloqueia outros clientes/secretária. */
+  createHold(input: { salonId: string; staffId: string; serviceIds: string[]; startAt: string }) {
+    return this.request({
+      method: "POST",
+      path: "/holds",
+      body: { salonId: input.salonId, staffId: input.staffId, serviceIds: input.serviceIds, startAt: input.startAt },
+      scope: { salonIds: [input.salonId] },
+    });
+  }
+
+  releaseHold(token: string) {
+    return this.request({
+      method: "DELETE",
+      path: "/holds",
+      body: { token },
+      scope: { salonIds: [] },
     });
   }
 

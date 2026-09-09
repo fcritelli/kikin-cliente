@@ -150,11 +150,16 @@ export const api = {
     request<{ link: EstablishmentLink }>("/links/whatsapp-optin", { method: "PUT", body }),
   updateProfile: (fullName: string) => request<{ account: PublicAccount }>("/accounts/profile", { method: "PUT", body: { fullName } }),
   updateWhatsapp: (phone: string) => request<{ account: PublicAccount }>("/accounts/whatsapp", { method: "PUT", body: { phone } }),
-  bookForLink: (body: { salonId: string; serviceIds: string[]; staffId?: string | null; startAt: string; whatsappOptIn?: boolean }) =>
+  bookForLink: (body: { salonId: string; serviceIds: string[]; staffId?: string | null; startAt: string; whatsappOptIn?: boolean; holdToken?: string | null }) =>
     request<{ success: boolean; created: { appointment_id: string; service_name: string; start_at: string; end_at: string }[] }>(
       "/links/book",
       { method: "POST", body }
     ),
+  bookingHold: (body: { salonId: string; staffId: string; serviceIds: string[]; startAt: string }) =>
+    request<{ hold: { id: string; token: string; expiresAt: string } }>("/links/hold", { method: "POST", body }),
+  releaseHold: (token: string) =>
+    request<{ ok: true }>("/links/hold", { method: "DELETE", body: { token } }),
+
   cancelAppointment: (body: { salonId: string; appointmentId: string }) =>
     request<{ success: boolean; canceledAppointments: string[] }>("/links/me/appointments/cancel", { method: "POST", body }),
   rescheduleAppointment: (body: { salonId: string; appointmentId: string; staffId?: string | null; startAt: string }) =>
@@ -227,6 +232,7 @@ export interface BookPayload {
   clientName: string;
   clientPhone: string;
   whatsappOptIn?: boolean;
+  holdToken?: string | null;
 }
 
 export interface BookResult {

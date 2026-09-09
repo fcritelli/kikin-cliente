@@ -65,6 +65,7 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
   // shape unificada do retorno (public proxy ou interno por client)
   const [done, setDone] = useState<{ appointments: { appointment_id: string; service_name: string; start_at: string }[]; staff_name?: string } | null>(null);
   const notified = useRef(false);
+  const holdRef = useRef<string | null>(null);
 
   const serviceIds = useMemo(() => selectedServices.map((s) => s.id), [selectedServices]);
   const slug = salon.slug;
@@ -105,8 +106,24 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
       .catch(() => setSlots([]));
   }, [date, serviceIds.join(","), staffId, reloadTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const reserveHold = async (startAt: string, effStaffId: string) => {
+    if (holdRef.current) void api.releaseHold(holdRef.current).catch(() => undefined);
+    try {
+      const res = await api.bookingHold({ salonId: salon.id, staffId: effStaffId, serviceIds, startAt });
+      holdRef.current = res.hold.token;
+    } catch {
+      holdRef.current = null; // hold é consultivo; segue mesmo se falhar
+    }
+  };
+
   const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_min || 0), 0);
   const totalPrice = selectedServices.reduce((acc, s) => acc + (s.price || 0), 0);
+
+  useEffect(() => {
+    return () => {
+      if (holdRef.current) void api.releaseHold(holdRef.current).catch(() => undefined);
+    };
+  }, []);
 
   const submit = async () => {
     if (!date || !time) return setError("Escolha dia e horário.");
@@ -122,7 +139,7 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
     const startAt = new Date(y, m - 1, d, hh, mm).toISOString();
     try {
       const raw: any = linkedClient
-        ? await api.bookForLink({ salonId: salon.id, serviceIds, staffId, startAt, whatsappOptIn })
+        ? await api.bookForLink({ salonId: salon.id, serviceIds, staffId, startAt, whatsappOptIn, holdToken: holdRef.current })
         : await api.bookingBook(slug, {
             serviceIds,
             staffId,
@@ -130,6 +147,7 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
             clientName: clientName.trim(),
             clientPhone: phoneDigits,
             whatsappOptIn,
+            holdToken: holdRef.current,
           });
       const items: any[] = raw?.created || raw?.appointments || [];
       const result = { appointments: items, staff_name: raw?.staff_name };
@@ -148,6 +166,8 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
         // Horário foi ocupado entre a busca e o confirmar: mantém o MESMO profissional,
         // volta para a lista e a atualiza (o horário tomado não aparece mais).
         setError("Esse horário acabou de ser reservado por outra pessoa no mesmo minuto. Atualizamos a agenda — escolha outro.");
+        if (holdRef.current) void api.releaseHold(holdRef.current).catch(() => undefined);
+        holdRef.current = null;
         setTime("");
         setStep("horario");
         setReloadTick((t) => t + 1);
@@ -269,9 +289,14 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
                       {visibleSlots.map((s) => (
                         <button key={s.start_at} type="button"
                           onClick={() => {
+                            const [yy, mm, dd] = date.split("-").map(Number);
+                            const [hh, min] = s.start_at.split(":").map(Number);
+                            const effStaff = staffId || s.available_staff[0];
                             setTime(s.start_at);
-                            // Sem preferência: atribui o primeiro profissional livre no horário
-                            if (!staffId && s.available_staff[0]) setStaffId(s.available_staff[0]);
+                            if (effStaff) {
+                              setStaffId(effStaff);
+                              void reserveHold(new Date(yy, mm - 1, dd, hh, min).toISOString(), effStaff);
+                            }
                             setStep("dados");
                           }}
                           className={cn("h-10 rounded-lg border text-sm font-bold cursor-pointer",

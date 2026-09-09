@@ -317,6 +317,7 @@ export async function bookForLinkedClient(input: {
   staffId?: string | null;
   startAt: string;
   whatsappOptIn?: boolean;
+  holdToken?: string | null;
 }): Promise<any> {
   const link = await requireLink(input.accountId, input.salonId);
   if (input.whatsappOptIn) {
@@ -332,6 +333,7 @@ export async function bookForLinkedClient(input: {
     serviceIds: input.serviceIds,
     staffId: input.staffId || null,
     startAt: input.startAt,
+    holdToken: input.holdToken || null,
   });
   void notifyChanges({ accountId: input.accountId, link, kind: "booked", when: fmtWhenBr(input.startAt) });
   return result;
@@ -430,4 +432,13 @@ async function notifyChanges(input: {
   } catch {
     /* best-effort */
   }
+}
+
+/** Reserva temporária de horário ao selecionar (3 min). */
+export async function createBookingHold(input: { salonId: string; staffId: string; serviceIds: string[]; startAt: string }): Promise<any> {
+  return newKikin().createHold(input);
+}
+
+export async function releaseBookingHold(token: string): Promise<void> {
+  await newKikin().releaseHold(token).catch(() => undefined);
 }
