@@ -155,6 +155,12 @@ export const api = {
       "/links/book",
       { method: "POST", body }
     ),
+  /** Agenda em estabelecimento ainda não vinculado: o vínculo nasce do agendamento. */
+  bookNewAtSalon: (body: { salonId: string; serviceIds: string[]; staffId?: string | null; startAt: string; name: string; phone: string; whatsappOptIn?: boolean; holdToken?: string | null }) =>
+    request<{ success: boolean; linked: boolean; linkedNow: boolean; clientId: string; created: { appointment_id: string; service_name: string; start_at: string; end_at: string }[] }>(
+      "/links/book-new",
+      { method: "POST", body }
+    ),
   bookingHold: (body: { salonId: string; staffId: string; serviceIds: string[]; startAt: string }) =>
     request<{ hold: { id: string; token: string; expiresAt: string } }>("/links/hold", { method: "POST", body }),
   releaseHold: (token: string) =>

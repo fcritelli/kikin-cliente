@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -28,6 +28,26 @@ export function AuthPage({ mode }: AuthPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const created = searchParams.get("criada") === "1";
+  const nextParam = searchParams.get("next");
+  const nextValid = nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : null;
+
+  // Próxima tela após entrar (link do estabelecimento, ex.: /e/:slug).
+  // Guarda em sessionStorage para os fluxos que redirecionam (OAuth/WhatsApp).
+  useEffect(() => {
+    if (nextValid) {
+      sessionStorage.setItem("kc_next", nextValid);
+    } else {
+      sessionStorage.removeItem("kc_next");
+    }
+  }, [nextValid]);
+
+  const afterLogin = () => {
+    const raw = sessionStorage.getItem("kc_next");
+    sessionStorage.removeItem("kc_next");
+    return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/conta";
+  };
+
+  const loginWithNext = (qs: string) => `/login?${qs}${nextValid ? `&next=${encodeURIComponent(nextValid)}` : ""}`;
 
   // ---- formulário e-mail/senha
   const [fullName, setFullName] = useState("");
@@ -60,7 +80,7 @@ export function AuthPage({ mode }: AuthPageProps) {
         setError("Não foi possível carregar sua conta. Tente novamente.");
         return;
       }
-      navigate("/conta", { replace: true });
+      navigate(afterLogin(), { replace: true });
     } catch (err) {
       if (err instanceof ApiError && err.code === "EMAIL_NOT_VERIFIED") {
         setSentEmail(email);
@@ -89,7 +109,7 @@ export function AuthPage({ mode }: AuthPageProps) {
       // Em dev/hml (EMAIL_VERIFY_RETURN_TOKEN) o token volta na resposta: confirma na hora.
       if (res.verificationToken) {
         await api.verifyEmail(res.verificationToken);
-        navigate("/login?criada=1", { replace: true });
+        navigate(loginWithNext("criada=1"), { replace: true });
         return;
       }
       setSentEmail(res.email);
@@ -148,7 +168,7 @@ export function AuthPage({ mode }: AuthPageProps) {
       const res = await api.resendVerification(sentEmail);
       if (res.verificationToken) {
         await api.verifyEmail(res.verificationToken);
-        navigate("/login?criada=1", { replace: true });
+        navigate(loginWithNext("criada=1"), { replace: true });
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Erro ao reenviar verificação.");

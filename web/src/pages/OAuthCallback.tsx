@@ -28,6 +28,12 @@ export function OAuthCallback() {
 
   // Mini passo pós-OAuth (NEED_SETUP)
   const [pending, setPending] = useState<{ tempToken: string; fullName: string } | null>(null);
+
+  const afterLogin = () => {
+    const raw = sessionStorage.getItem("kc_next");
+    sessionStorage.removeItem("kc_next");
+    return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/conta";
+  };
   const [setupName, setSetupName] = useState("");
   const [setupConsent, setSetupConsent] = useState(false);
   const [setupBusy, setSetupBusy] = useState(false);
@@ -39,7 +45,7 @@ export function OAuthCallback() {
       const outcome = await api.social(provider, { code, redirectUri: oauthRedirectUri() });
       if (outcome.status === "SUCCESS") {
         const me = await applySession(outcome.tokens);
-        navigate(me ? "/conta" : "/login?erro=sessao", { replace: true });
+        navigate(me ? afterLogin() : "/login?erro=sessao", { replace: true });
         return;
       }
       // NEED_SETUP: mostra nome (pré-preenchido) + aceite de termos
@@ -80,7 +86,7 @@ export function OAuthCallback() {
     try {
       const res = await api.completeSocial({ tempToken: pending.tempToken, fullName: setupName.trim(), consent: true });
       await applySession(res.tokens);
-      navigate("/conta", { replace: true });
+      navigate(afterLogin(), { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Erro ao finalizar o cadastro.");
     } finally {

@@ -43,6 +43,17 @@ const bookSchema = z.object({
   whatsappOptIn: z.boolean().optional(),
 });
 
+const bookNewSchema = z.object({
+  salonId: z.string().uuid("Estabelecimento inválido"),
+  serviceIds: z.array(z.string().uuid("Serviço inválido")).min(1, "Escolha ao menos um serviço"),
+  staffId: z.string().uuid().nullable().optional(),
+  startAt: z.string().min(1, "Horário obrigatório"),
+  name: z.string().min(2, "Informe seu nome").optional(),
+  phone: z.string().min(10, "Informe seu WhatsApp com DDD").max(20),
+  whatsappOptIn: z.boolean().optional(),
+  holdToken: z.string().nullable().optional(),
+});
+
 // POST /api/v1/links/book — agenda no client vinculado (sem telefone; vínculo é a identidade)
 router.post("/book", requireAuth, perUserLimiter, async (req, res) => {
   try {
@@ -55,6 +66,34 @@ router.post("/book", requireAuth, perUserLimiter, async (req, res) => {
     return res.status(201).json(result);
   } catch (err: any) {
     return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
+  }
+});
+
+// POST /api/v1/links/book-new — agenda em estabelecimento ainda NÃO vinculado
+// (link do salão). O vínculo nasce do próprio agendamento: o Kikin acha/cria o
+// client pelo WhatsApp informado e a conta passa a ver o salão no painel na hora.
+router.post("/book-new", requireAuth, perUserLimiter, async (req, res) => {
+  try {
+    const parsed = bookNewSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
+    }
+    const accountId = (req as any).account.accountId;
+    const { result, link, clientId, linkedNow } = await links.bookNewSalonAndLink({ accountId, ...parsed.data });
+    return res.status(201).json({
+      success: true,
+      linked: !!link,
+      linkedNow,
+      clientId,
+      salonId: parsed.data.salonId,
+      ...result,
+    });
+  } catch (err: any) {
+    return res.status(err.status || 500).json({
+      code: err.code || "INTERNAL",
+      error: err.message,
+      ...(err.detail ? { detail: err.detail } : {}),
+    });
   }
 });
 

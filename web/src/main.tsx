@@ -8,6 +8,7 @@ import { AuthPage } from "./pages/AuthPage";
 import { OAuthCallback } from "./pages/OAuthCallback";
 import { AccountPage } from "./pages/AccountPage";
 import { LegalPage } from "./pages/LegalPage";
+import { SalonBookingPage } from "./pages/SalonBookingPage";
 
 function ProtectedAccount() {
   const { authed, booting } = useAuth();
@@ -26,6 +27,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/cadastro" element={<AuthPage key="cadastro" mode="signup" />} />
           <Route path="/auth" element={<OAuthCallback />} />
           <Route path="/conta" element={<ProtectedAccount />} />
+          <Route path="/e/:slug" element={<SalonBookingPage />} />
           <Route path="/termos" element={<LegalPage doc="termos" />} />
           <Route path="/privacidade" element={<LegalPage doc="privacidade" />} />
           <Route path="*" element={<Navigate to="/" replace />} />

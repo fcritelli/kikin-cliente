@@ -265,6 +265,126 @@ export async function autoLinkFromBooking(input: {
   });
 }
 
+/**
+ * Vínculo a partir de um client JÁ conhecido (o Kikin devolve o clientId no
+ * próprio booking) — sem nova busca por hash. Mesmas regras de dedupe/opt-in
+ * do confirmLink: 1 vínculo por (conta, salão), telefone único entre contas.
+ */
+async function linkByKnownClient(input: {
+  accountId: string;
+  salonId: string;
+  kikinClientId: string;
+  clientName?: string;
+  phone: string;
+  whatsappOptIn?: boolean;
+}): Promise<EstablishmentLink | null> {
+  const normalized = normalizePhoneBR(input.phone);
+  if (!normalized) throw err(400, "INVALID_PHONE", "Informe um telefone válido.");
+  const phoneHash = hashPhoneBR(normalized, config.KIKIN_CLIENT_PORTAL_SECRET)!;
+
+  const id = await withTransaction(async (client) => {
+    const dupAccount = await client.query(
+      `SELECT account_id FROM account_establishment_links WHERE phone_hash = $1 LIMIT 1`,
+      [phoneHash]
+    );
+    if (dupAccount.rows.length > 0 && dupAccount.rows[0].account_id !== input.accountId) {
+      throw err(409, "PHONE_LINKED_TO_ANOTHER_ACCOUNT", "Este telefone já está vinculado a outra conta no portal.");
+    }
+    const bySalon = await client.query<{ id: string }>(
+      `SELECT id FROM account_establishment_links
+       WHERE account_id = $1 AND salon_id = $2 LIMIT 1`,
+      [input.accountId, input.salonId]
+    );
+    if (bySalon.rows.length > 0) {
+      if (input.whatsappOptIn) {
+        await client.query(
+          `UPDATE account_establishment_links SET whatsapp_optin_at = coalesce(whatsapp_optin_at, now()), updated_at = now()
+           WHERE id = $1`,
+          [bySalon.rows[0].id]
+        );
+      }
+      return bySalon.rows[0].id;
+    }
+    const ins = await client.query<{ id: string }>(
+      `INSERT INTO account_establishment_links
+         (account_id, salon_id, kikin_client_id, client_name, phone_hash, phone_masked, whatsapp_optin_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [
+        input.accountId,
+        input.salonId,
+        input.kikinClientId,
+        input.clientName?.trim() || "Cliente",
+        phoneHash,
+        maskPhoneBR(normalized),
+        input.whatsappOptIn ? new Date().toISOString() : null,
+      ]
+    );
+    return ins.rows[0].id;
+  });
+  return getLinkRow(id);
+}
+
+/**
+ * Agenda em um estabelecimento NOVO para a conta (chegada pelo link do salão):
+ *  - já vinculado → usa o client do vínculo (sem telefone);
+ *  - ainda não vinculado → o Kikin acha/cria o client pelo WhatsApp informado e
+ *    devolve o clientId; o vínculo é gravado AQUI, na hora — o estabelecimento
+ *    aparece no painel imediatamente, sem "recuperar cadastro".
+ */
+export async function bookNewSalonAndLink(input: {
+  accountId: string;
+  salonId: string;
+  serviceIds: string[];
+  staffId?: string | null;
+  startAt: string;
+  phone: string;
+  name?: string | null;
+  whatsappOptIn?: boolean;
+  holdToken?: string | null;
+}): Promise<{ result: any; link: EstablishmentLink | null; clientId: string; linkedNow: boolean }> {
+  const normalized = normalizePhoneBR(input.phone);
+  if (!normalized) throw err(400, "INVALID_PHONE", "Informe um WhatsApp com DDD válido.");
+
+  const kikin = newKikin();
+  const existing = (await listLinks(input.accountId)).find((l) => l.salonId === input.salonId) || null;
+
+  if (existing) {
+    const result = await kikin.bookForClient({
+      salonId: input.salonId,
+      clientId: existing.kikinClientId,
+      serviceIds: input.serviceIds,
+      staffId: input.staffId || null,
+      startAt: input.startAt,
+      holdToken: input.holdToken || null,
+    });
+    return { result, link: existing, clientId: existing.kikinClientId, linkedNow: false };
+  }
+
+  const result = await kikin.bookByPhone({
+    salonId: input.salonId,
+    serviceIds: input.serviceIds,
+    staffId: input.staffId || null,
+    startAt: input.startAt,
+    holdToken: input.holdToken || null,
+    phone: normalized,
+    name: input.name || null,
+  });
+  const clientId = String(result?.clientId || "");
+  let link: EstablishmentLink | null = null;
+  if (clientId) {
+    link = await linkByKnownClient({
+      accountId: input.accountId,
+      salonId: input.salonId,
+      kikinClientId: clientId,
+      clientName: input.name || undefined,
+      phone: normalized,
+      whatsappOptIn: input.whatsappOptIn,
+    });
+  }
+  return { result, link, clientId, linkedNow: !!link };
+}
+
 /** Vínculo ativo da conta no salão (garante que a ação é de um client vinculado). */
 async function requireLink(accountId: string, salonId: string): Promise<EstablishmentLink> {
   const links = await listLinks(accountId);

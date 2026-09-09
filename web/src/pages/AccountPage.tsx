@@ -9,7 +9,6 @@ import {
   ApiError,
   type BookingSalonMeta,
   type BookingSlot,
-  type ClientCandidate,
   type EstablishmentLink,
   type FutureAppointment,
 } from "@/lib/api";
@@ -85,13 +84,6 @@ export function AccountPage() {
   const [links, setLinks] = useState<EstablishmentLink[]>([]);
   const [appointments, setAppointments] = useState<FutureAppointment[]>([]);
   const [history, setHistory] = useState<FutureAppointment[] | null>(null);
-
-  // claim
-  const [phone, setPhone] = useState("");
-  const [claimOptIn, setClaimOptIn] = useState(false);
-  const [claiming, setClaiming] = useState(false);
-  const [candidates, setCandidates] = useState<ClientCandidate[] | null>(null);
-  const [showClaim, setShowClaim] = useState(false);
 
   // agendar
   const [salons, setSalons] = useState<BookingSalonMeta[] | null>(null);
@@ -191,42 +183,6 @@ export function AccountPage() {
     }
   };
 
-  // ---- claim
-  const startClaim = async () => {
-    if (!phone || phone.replace(/\D/g, "").length < 10) return setError("Informe um WhatsApp com DDD válido.");
-    setError(null);
-    setMessage(null);
-    setClaiming(true);
-    setCandidates(null);
-    try {
-      const res = await api.claimClients({ phone });
-      setCandidates(res.candidates);
-      if (res.candidates.length === 0) {
-        setMessage("Nenhum cadastro encontrado com este WhatsApp. Se for sua primeira vez, use 'Agendar agora'.");
-      }
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao buscar seus cadastros.");
-    } finally {
-      setClaiming(false);
-    }
-  };
-
-  const confirmCandidate = async (candidate: ClientCandidate) => {
-    setError(null);
-    setClaiming(true);
-    try {
-      await api.confirmLink({ salonId: candidate.salonId, phone, clientId: candidate.clientId, whatsappOptIn: claimOptIn });
-      setCandidates(null);
-      setPhone("");
-      setShowClaim(false);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erro ao confirmar o vínculo.");
-    } finally {
-      setClaiming(false);
-    }
-  };
-
   // ---- agendar
   const openAgendar = async () => {
     const list = await ensureSalons();
@@ -235,9 +191,9 @@ export function AccountPage() {
     if (linked.length === 1) setBooking(linked[0]);
     else if (linked.length > 1) setPicker("linked");
     else {
-      // sem vínculo: nada de listar outros salões — orienta a recuperar o cadastro
-      setMessage("Para agendar, primeiro vincule seu cadastro: recupere pelo WhatsApp usado no estabelecimento.");
-      setShowClaim(true);
+      // Sem vínculo ainda: o agendamento começa pelo link que o estabelecimento envia;
+      // ao confirmar, o vínculo nasce sozinho e o salão aparece aqui na hora.
+      setMessage("Você ainda não tem estabelecimentos vinculados. Use o link de agendamento enviado pelo estabelecimento — ao confirmar, ele aparece aqui na hora.");
       setTab("estabelecimentos");
     }
   };
@@ -435,34 +391,6 @@ export function AccountPage() {
     );
   };
 
-  const claimPanel = (
-    <div className="mt-5 rounded-xl border border-black/10 bg-white p-5">
-      <p className="text-sm font-black uppercase tracking-tight">Recuperar cadastro por WhatsApp</p>
-      <p className="mt-1 text-xs text-black/50">Já é cliente de algum estabelecimento? Vincule seu cadastro informando o WhatsApp usado na reserva.</p>
-      <div className="mt-4 grid gap-3">
-        <Input id="claim-phone" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Seu WhatsApp (com DDD)" />
-        <label className="flex items-start gap-2.5 text-xs text-black/60 cursor-pointer">
-          <input type="checkbox" checked={claimOptIn} onChange={(e) => setClaimOptIn(e.target.checked)} className="mt-0.5 h-4 w-4 accent-blue-600" />
-          <span>Confirmo que este número é meu WhatsApp e aceito receber confirmações e lembretes por ele.</span>
-        </label>
-        <Button variant="outline" onClick={startClaim} disabled={claiming}>{claiming ? "Buscando…" : "Recuperar"}</Button>
-      </div>
-      {candidates && candidates.length > 0 && (
-        <div className="mt-4 grid gap-2">
-          {candidates.map((c) => (
-            <div key={`${c.salonId}:${c.clientId}`} className="flex items-center justify-between gap-3 rounded-xl border border-black/10 px-4 py-3">
-              <div>
-                <p className="text-sm font-bold">{c.name}</p>
-                <p className="text-xs text-black/50">{c.salonName} · {c.phoneMask}</p>
-              </div>
-              <Button size="sm" onClick={() => confirmCandidate(c)} disabled={claiming}>Sou eu — vincular</Button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-
   return (
     <div className="min-h-screen w-full flex flex-col bg-white text-black">
       {/* NAV superior */}
@@ -524,7 +452,7 @@ export function AccountPage() {
                 <h2 className="text-lg font-black uppercase tracking-tight">Agendar</h2>
                 <p className="mt-1.5 text-sm text-black/60">
                   {links.length === 0
-                    ? "Vincule-se a um estabelecimento para agendar (apenas o seu salão aparece)."
+                    ? "Quando o estabelecimento enviar o link, entre e confirme um horário — o salão aparece aqui automaticamente."
                     : `Agende no seu estabelecimento: ${linkedMetas.map((m) => m.name).join(", ") || "carregando…"}`}
                 </p>
                 <Button className="mt-4" onClick={openAgendar}>Agendar agora</Button>
@@ -533,12 +461,10 @@ export function AccountPage() {
               {links.length === 0 ? (
                 <div className="mt-6 rounded-2xl border border-black/10 bg-white p-6 text-sm text-black/60">
                   <p>
-                    <b>Você ainda não tem estabelecimentos vinculados.</b> Para agendar, o estabelecimento
-                    precisa ter o seu cadastro (telefone/WhatsApp) — recupere-o abaixo.
+                    <b>Você ainda não tem estabelecimentos vinculados.</b> Quando o estabelecimento enviar o link
+                    de agendamento, entre e confirme um horário: seu cadastro é vinculado automaticamente e o
+                    salão aparece aqui na hora.
                   </p>
-                  <button type="button" onClick={() => { setShowClaim(true); setTab("estabelecimentos"); }} className="mt-3 text-xs font-bold text-blue-600 hover:underline">
-                    Recuperar meu cadastro por WhatsApp →
-                  </button>
                 </div>
               ) : (
                 <>
@@ -624,18 +550,6 @@ export function AccountPage() {
                   })}
                 </ul>
               )}
-              <div className="mt-5">
-                {showClaim ? (
-                  <>
-                    {claimPanel}
-                    <Button variant="ghost" size="sm" className="mt-2" onClick={() => setShowClaim(false)}>Fechar</Button>
-                  </>
-                ) : (
-                  <Button variant="outline" size="sm" onClick={() => setShowClaim(true)}>
-                    + Recuperar cadastro por WhatsApp (adicionar estabelecimento)
-                  </Button>
-                )}
-              </div>
             </>
           )}
 

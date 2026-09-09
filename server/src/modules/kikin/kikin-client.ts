@@ -188,6 +188,36 @@ export class KikinPortalClient {
     });
   }
 
+  /**
+   * Agenda em estabelecimento onde a conta ainda não tem vínculo: o Kikin acha o
+   * client pelo telefone ou o cria na hora e devolve o clientId — o vínculo nasce
+   * do agendamento (nada de "recuperar cadastro" manual).
+   */
+  bookByPhone(input: {
+    salonId: string;
+    serviceIds: string[];
+    staffId?: string | null;
+    startAt: string;
+    holdToken?: string | null;
+    phone: string;
+    name?: string | null;
+  }) {
+    return this.request({
+      method: "POST",
+      path: "/book",
+      body: {
+        salonId: input.salonId,
+        serviceIds: input.serviceIds,
+        staffId: input.staffId || null,
+        startAt: input.startAt,
+        holdToken: input.holdToken || null,
+        phone: input.phone,
+        name: input.name || null,
+      },
+      scope: { salonIds: [input.salonId] },
+    });
+  }
+
   /** Reserva temporária (3 min) ao selecionar horário — bloqueia outros clientes/secretária. */
   createHold(input: { salonId: string; staffId: string; serviceIds: string[]; startAt: string }) {
     return this.request({

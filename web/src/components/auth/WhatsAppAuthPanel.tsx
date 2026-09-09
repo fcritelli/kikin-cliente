@@ -10,6 +10,12 @@ import { Input } from "@/components/ui/Input";
  * confirma. Conta inexistente → 1º acesso pede nome + termos (+ e-mail opcional) e já
  * vincula os cadastros existentes do número. Em dev sem provedor, o código aparece na tela.
  */
+function consumeNext(): string {
+  const raw = sessionStorage.getItem("kc_next");
+  sessionStorage.removeItem("kc_next");
+  return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/conta";
+}
+
 export function WhatsAppAuthPanel() {
   const navigate = useNavigate();
   const { applySession } = useAuth();
@@ -60,7 +66,7 @@ export function WhatsAppAuthPanel() {
       const out = await api.whatsappVerify(phone, code);
       if (out.status === "LOGIN") {
         const me = await applySession(out.tokens);
-        navigate(me ? "/conta" : "/login", { replace: true });
+        navigate(me ? consumeNext() : "/login", { replace: true });
         return;
       }
       setTempToken(out.tempToken);
@@ -81,7 +87,7 @@ export function WhatsAppAuthPanel() {
     try {
       const res = await api.whatsappRegister({ tempToken, fullName: fullName.trim(), consent, email: email.trim() || null });
       const me = await applySession(res.tokens);
-      navigate(me ? "/conta" : "/login", { replace: true });
+      navigate(me ? consumeNext() : "/login", { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Erro ao criar a conta.");
     } finally {

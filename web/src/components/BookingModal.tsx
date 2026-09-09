@@ -212,15 +212,26 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
     try {
       const raw: any = linkedClient
         ? await api.bookForLink({ salonId: salon.id, serviceIds, staffId, startAt, whatsappOptIn, holdToken: holdRef.current })
-        : await api.bookingBook(slug, {
-            serviceIds,
-            staffId,
-            startAt,
-            clientName: clientName.trim(),
-            clientPhone: phoneDigits,
-            whatsappOptIn,
-            holdToken: holdRef.current,
-          });
+        : account
+          ? await api.bookNewAtSalon({
+              salonId: salon.id,
+              serviceIds,
+              staffId,
+              startAt,
+              name: clientName.trim(),
+              phone: phoneDigits,
+              whatsappOptIn,
+              holdToken: holdRef.current,
+            })
+          : await api.bookingBook(slug, {
+              serviceIds,
+              staffId,
+              startAt,
+              clientName: clientName.trim(),
+              clientPhone: phoneDigits,
+              whatsappOptIn,
+              holdToken: holdRef.current,
+            });
       const items: any[] = raw?.created || raw?.appointments || [];
       const result = { appointments: items, staff_name: raw?.staff_name };
       setDone(result);
