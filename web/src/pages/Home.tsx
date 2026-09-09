@@ -60,7 +60,7 @@ export function Home() {
           <h1 className="mt-6 text-[11vw] leading-[1.02] font-display font-semibold tracking-[0.01em] sm:text-[8vw] md:text-[5.25rem] lg:text-[6.25rem]">
             Conectando você
             <br />
-            <span className="italic text-blue-600">ao seu lugar preferido.</span>
+            <span className="text-blue-600">ao seu lugar preferido.</span>
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-xs font-bold uppercase leading-relaxed tracking-wider text-black/70 sm:text-sm md:text-base">
             Agende, remaque e cancele horários no salão, barbeiro ou clínica — direto do seu
