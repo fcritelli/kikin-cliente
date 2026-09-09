@@ -58,9 +58,9 @@ export function Home() {
             <Sparkles className="h-3 w-3" /> Novo portal do cliente
           </span>
           <h1 className="mt-6 text-[13vw] leading-[0.9] font-black uppercase tracking-[-0.04em] sm:text-[11vw] md:text-[7rem] lg:text-[8.5rem]">
-            Sua agenda,
+            Conectando você
             <br />
-            <span className="text-blue-600">em movimento.</span>
+            <span className="text-blue-600">ao seu lugar preferido.</span>
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-xs font-bold uppercase leading-relaxed tracking-wider text-black/70 sm:text-sm md:text-base">
             Agende, remaque e cancele horários no salão, barbeiro ou clínica — direto do seu
