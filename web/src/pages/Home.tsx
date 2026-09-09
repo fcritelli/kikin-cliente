@@ -29,23 +29,24 @@ export function Home() {
           </span>
         </a>
         <nav className="flex items-center gap-2 sm:gap-4 text-[11px] sm:text-xs font-bold uppercase tracking-wider">
-          {account && (
+          {account ? (
             <button
               type="button"
               onClick={go("/conta")}
-              className="hidden sm:inline-block px-3 py-2 rounded-full hover:bg-white hover:text-black transition-colors cursor-pointer"
+              className="px-3 py-2 rounded-full hover:bg-white hover:text-black transition-colors cursor-pointer"
             >
               Minha conta
             </button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={go("/login")}
+              className="text-white border-white bg-transparent hover:bg-white hover:text-black"
+            >
+              Entrar
+            </Button>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={go(account ? "/conta" : "/login")}
-            className="text-white border-white bg-transparent hover:bg-white hover:text-black"
-          >
-            {account ? "Minha conta" : "Entrar"}
-          </Button>
         </nav>
       </header>
 
