@@ -76,6 +76,8 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: /api/v1
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+        VITE_MICROSOFT_CLIENT_ID: ${VITE_MICROSOFT_CLIENT_ID:-}
     container_name: kikin-cliente-web
     restart: unless-stopped
     depends_on:

@@ -16,6 +16,13 @@ COPY public ./public
 ARG VITE_API_URL=/api/v1
 ENV VITE_API_URL=$VITE_API_URL
 
+# OAuth (client IDs públicos p/ os botões "Continuar com Google/Microsoft")
+ARG VITE_GOOGLE_CLIENT_ID=
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+
+ARG VITE_MICROSOFT_CLIENT_ID=
+ENV VITE_MICROSOFT_CLIENT_ID=$VITE_MICROSOFT_CLIENT_ID
+
 RUN npm run build
 
 # ==========================================
