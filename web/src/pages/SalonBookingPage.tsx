@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, type BookingSalonMeta, type EstablishmentLink } from "@/lib/api";
+import { WHATSAPP_OPTIN_OPTIONAL_NOTE } from "@/lib/lgpdCopy";
 import { useAuth } from "@/contexts/AuthContext";
 import { BookingModal } from "@/components/BookingModal";
 import { Button } from "@/components/ui/Button";
@@ -230,6 +231,8 @@ export function SalonBookingPage() {
                   />
                   <span>Aceito receber confirmações e lembretes deste estabelecimento no WhatsApp.</span>
                 </label>
+                {/* LGPD Art. 18, VIII — consentir é opcional e a recusa não tira o serviço */}
+                <p className="mt-2 text-[11px] leading-relaxed text-blue-900/70">{WHATSAPP_OPTIN_OPTIONAL_NOTE}</p>
                 {linkError && <p className="mt-2 text-xs font-medium text-red-600">{linkError}</p>}
               </div>
             )}

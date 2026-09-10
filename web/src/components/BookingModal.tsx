@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { cn } from "@/lib/utils";
+import { WHATSAPP_OPTIN_OPTIONAL_NOTE } from "@/lib/lgpdCopy";
 import { subscribeRealtime } from "@/lib/realtime";
 
 type Step = "servicos" | "profissionais" | "horario" | "dados" | "feito";
@@ -423,6 +424,8 @@ export function BookingModal({ salon, linkedClient, onClose, onSuccess }: Bookin
                     <input type="checkbox" checked={whatsappOptIn} onChange={(e) => setWhatsappOptIn(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600" />
                     <span>Confirmo que este número é meu WhatsApp e aceito receber a confirmação do agendamento e lembretes por ele.</span>
                   </label>
+                  {/* LGPD Art. 18, VIII — o lembrete é opcional; a recusa não impede o agendamento */}
+                  <p className="text-[11px] leading-relaxed text-black/50">{WHATSAPP_OPTIN_OPTIONAL_NOTE}</p>
                   <div className="flex items-center justify-between rounded-xl border border-black/10 px-4 py-3">
                     <p className="text-sm font-bold">Total · {totalDuration} min</p>
                     <p className="text-sm font-black">{fmtBRL(totalPrice)}</p>

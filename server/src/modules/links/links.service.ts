@@ -59,6 +59,22 @@ function newKikin(): KikinPortalClient {
   return new KikinPortalClient();
 }
 
+/**
+ * Diagnóstico de leituras PARCIAIS: as listagens abaixo degradam de propósito (vínculo cujo
+ * salão está fora do ar não derruba a tela inteira), mas quem faz leitura de DIREITO DO
+ * TITULAR (export LGPD Art. 18) não pode receber uma lista vazia sem saber que houve falha.
+ * O chamador passa este objeto e recebe os motivos, em linguagem de titular.
+ */
+export interface ReadDiagnostics {
+  falhas: string[];
+}
+
+/** Registra o motivo UMA vez (a mesma falha pode aparecer em duas leituras). */
+function reportarFalha(diag: ReadDiagnostics | undefined, motivo: string): void {
+  if (!diag) return;
+  if (!diag.falhas.includes(motivo)) diag.falhas.push(motivo);
+}
+
 export async function listSalons(): Promise<SalonInfo[]> {
   const data = await newKikin().listSalons();
   const salons: any[] = Array.isArray(data?.salons) ? data.salons : [];
@@ -235,7 +251,7 @@ export async function confirmLink(input: {
 }
 
 /** Vínculos do cliente com nomes de estabelecimento (do /salons do Kikin). */
-export async function listLinks(accountId: string): Promise<EstablishmentLink[]> {
+export async function listLinks(accountId: string, diag?: ReadDiagnostics): Promise<EstablishmentLink[]> {
   const [rows, salons] = await Promise.all([
     query<EstablishmentLink>(
       `SELECT id, salon_id AS "salonId", kikin_client_id AS "kikinClientId",
@@ -244,15 +260,18 @@ export async function listLinks(accountId: string): Promise<EstablishmentLink[]>
        FROM account_establishment_links WHERE account_id = $1 ORDER BY confirmed_at`,
       [accountId]
     ),
-    listSalons().catch(() => [] as SalonInfo[]),
+    listSalons().catch(() => {
+      reportarFalha(diag, "nomes dos estabelecimentos indisponíveis no momento");
+      return [] as SalonInfo[];
+    }),
   ]);
   const nameBySalon = new Map(salons.map((s) => [s.id, s.name]));
   return rows.rows.map((r) => ({ ...r, salonName: nameBySalon.get(r.salonId) }));
 }
 
 /** Próximos agendamentos do cliente em todos os vínculos (via endpoints internos do Kikin). */
-export async function listFutureAppointments(accountId: string): Promise<FutureAppointment[]> {
-  const links = await listLinks(accountId);
+export async function listFutureAppointments(accountId: string, diag?: ReadDiagnostics): Promise<FutureAppointment[]> {
+  const links = await listLinks(accountId, diag);
   const kikin = newKikin();
   const all: FutureAppointment[] = [];
   for (const link of links) {
@@ -282,6 +301,7 @@ export async function listFutureAppointments(accountId: string): Promise<FutureA
     } catch (e: any) {
       // Vínculo cujo salão ficou indisponível não derruba a listagem inteira
       console.error(`[links] falha ao listar agendamentos do vínculo ${link.id}:`, e?.message || e);
+      reportarFalha(diag, "agendamentos do estabelecimento indisponíveis no momento");
     }
   }
   all.sort((a, b) => (a.startAt < b.startAt ? -1 : a.startAt > b.startAt ? 1 : 0));
@@ -513,8 +533,8 @@ export async function bookForLinkedClient(input: {
 }
 
 /** Histórico de consultas (inclui canceladas/faltas) do cliente nos vínculos. */
-export async function listAppointmentsHistory(accountId: string): Promise<FutureAppointment[]> {
-  const links = await listLinks(accountId);
+export async function listAppointmentsHistory(accountId: string, diag?: ReadDiagnostics): Promise<FutureAppointment[]> {
+  const links = await listLinks(accountId, diag);
   const kikin = newKikin();
   const all: FutureAppointment[] = [];
   for (const link of links) {
@@ -539,6 +559,7 @@ export async function listAppointmentsHistory(accountId: string): Promise<Future
       }
     } catch (e: any) {
       console.error(`[links] falha ao listar histórico do vínculo ${link.id}:`, e?.message || e);
+      reportarFalha(diag, "histórico de agendamentos indisponível no momento");
     }
   }
   all.sort((a, b) => (a.startAt < b.startAt ? 1 : -1));

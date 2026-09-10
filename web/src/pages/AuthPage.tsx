@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { WHATSAPP_OPTIN_OPTIONAL_NOTE } from "@/lib/lgpdCopy";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -413,6 +414,10 @@ export function AuthPage({ mode }: AuthPageProps) {
                         />
                         <span>Confirmo que este número é meu WhatsApp e aceito receber confirmações e lembretes por ele.</span>
                       </label>
+                      {/* LGPD Art. 18, VIII — informar que consentir é opcional e o que muda */}
+                      <p className="mt-2 text-[11px] leading-relaxed text-blue-900/70">
+                        {WHATSAPP_OPTIN_OPTIONAL_NOTE}
+                      </p>
                     </div>
                   )}
                   <label className="flex items-start gap-2.5 text-xs leading-relaxed text-black/60 cursor-pointer">
