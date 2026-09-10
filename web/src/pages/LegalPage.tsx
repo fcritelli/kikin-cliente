@@ -53,12 +53,43 @@ export function LegalPage({ doc }: LegalPageProps) {
                   uma versão com hash e mascarada. Você pode solicitar exportação ou exclusão dos
                   seus dados a qualquer momento.
                 </p>
+                <p className="mt-2">
+                  Se você frequenta um estabelecimento de <b>saúde ou estética</b> (clínicas de estética,
+                  procedimentos injetáveis, por exemplo), as informações do seu atendimento podem ser
+                  <b> dados pessoais sensíveis</b> relativos à saúde (Art. 11 da LGPD). Nesse caso elas
+                  ficam registradas no cadastro do salão — não no portal — e são tratadas para a
+                  finalidade de atendimento e segurança do procedimento, com consentimento específico
+                  solicitado pelo estabelecimento. O portal guarda apenas o vínculo com aquele
+                  estabelecimento.
+                </p>
               </section>
               <section>
                 <h2 className="text-base font-black uppercase tracking-tight text-black">3. Compartilhamento</h2>
                 <p className="mt-2">
                   Seus dados são usados exclusivamente para operar o portal e conectar sua conta ao
-                  salão que você frequenta. Não vendemos dados.
+                  salão que você frequenta. <b>Não vendemos dados.</b> Para funcionar, o portal usa
+                  operadores que tratam dados apenas para as finalidades abaixo:
+                </p>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  <li><b>Meta Platforms</b> — envio das mensagens de WhatsApp (confirmações, lembretes e códigos de acesso) — <i>EUA</i>.</li>
+                  <li><b>Sentry</b> — monitoramento de erros e desempenho da aplicação — <i>EUA</i>.</li>
+                  <li><b>Google</b> — login com Google e entrega de notificações push do navegador — <i>EUA</i>.</li>
+                  <li><b>Microsoft</b> — login com Microsoft — <i>EUA</i>.</li>
+                  <li><b>Asaas</b> — cobrança e emissão de nota fiscal dos planos dos estabelecimentos — <i>Brasil</i>.</li>
+                  <li><b>Cloudflare</b> — DNS, proxy e proteção da borda — <i>EUA</i>.</li>
+                  <li><b>Provedor de e-mail (SMTP) contratado</b> — envio do link de confirmação de e-mail e da redefinição de senha — <i>conforme o provedor</i>.</li>
+                  <li><b>Provedor de notificações push do seu navegador</b> (Google, Mozilla ou Apple, conforme o navegador) — entrega das notificações que você mesmo ativa — <i>conforme o navegador</i>.</li>
+                </ul>
+                <p className="mt-2">
+                  Os itens com país estrangeiro envolvem <b>transferência internacional</b> (Art. 33 da
+                  LGPD), feita com base nas hipóteses legais aplicáveis (execução de contrato e
+                  consentimento) e com salvaguardas técnicas como TLS em trânsito, minimização e uso de
+                  hash para identificadores sensíveis. Com o estabelecimento que você frequenta,
+                  compartilhamos apenas o necessário ao atendimento (nome, contato e dados do horário).
+                </p>
+                <p className="mt-2">
+                  A lista completa de operadores, com finalidade e país, também vem no arquivo JSON da
+                  sua exportação (Perfil → Meus dados).
                 </p>
               </section>
               <section>

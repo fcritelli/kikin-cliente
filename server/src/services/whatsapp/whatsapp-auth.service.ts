@@ -3,7 +3,7 @@ import { query, withTransaction } from "../../db.js";
 import { config } from "../../config.js";
 import { decryptPhone, encryptPhone, sendWhatsApp } from "./whatsapp.service.js";
 import { normalizePhoneBR, hashPhoneBR, maskPhoneBR } from "../../utils/phone.js";
-import { issueSession, err, getAccount, type SessionTokens, type PublicAccount } from "../../modules/accounts/accounts.service.js";
+import { issueSession, err, getAccount, updateWhatsapp, type SessionTokens, type PublicAccount } from "../../modules/accounts/accounts.service.js";
 import { confirmLink, searchCandidates } from "../../modules/links/links.service.js";
 
 /**
@@ -22,7 +22,7 @@ const MAX_ATTEMPTS = 5;
  * 'whatsapp_signin'); 'account_deletion' (LGPD Art. 18) usa o MESMO mecanismo/armazenamento,
  * só com escopo próprio — retrocompatível: quem não passa purpose continua no login.
  */
-export type WhatsappOtpPurpose = "whatsapp_signin" | "account_deletion";
+export type WhatsappOtpPurpose = "whatsapp_signin" | "account_deletion" | "whatsapp_confirm";
 
 /** Recorte de banco aceito pelas funções de OTP (permite rodar dentro de uma transação). */
 export interface OtpDb {
@@ -37,6 +37,8 @@ const OTP_MESSAGES: Record<WhatsappOtpPurpose, (code: string) => string> = {
   whatsapp_signin: (code) => `Seu código do kikin cliente é ${code}. Ele expira em 10 minutos.`,
   account_deletion: (code) =>
     `Código para EXCLUIR sua conta do kikin cliente: ${code}. Ele expira em 10 minutos. Se não foi você, ignore esta mensagem — sua conta continua ativa.`,
+  whatsapp_confirm: (code) =>
+    `Seu código do kikin cliente para CONFIRMAR este WhatsApp é ${code}. Ele expira em 10 minutos. Se não foi você, ignore esta mensagem — nada muda na sua conta.`,
 };
 
 function generateCode(): string {
@@ -141,6 +143,73 @@ export async function markWhatsappOtpUsed(input: {
 /** Número da conta decifrado em memória (só para enviar mensagem). Nunca logado/exportado. */
 export function decryptAccountPhone(phoneEnc: string | null | undefined): string | null {
   return decryptPhone(phoneEnc);
+}
+
+// ---------------------------------------------------------------------------
+// Confirmar o WhatsApp de uma conta JÁ LOGADA (sem número): é o caminho de prova
+// de identidade de quem entrou por Google/Microsoft — conta sem senha e sem
+// WhatsApp cadastrado não teria NENHUMA prova para exercer o Art. 18, IV/VI.
+//
+// Regra de ouro: o número só vira `whatsapp_phone_*` da conta DEPOIS de o código
+// enviado PARA ELE ser conferido. Sem isso, escrever um número qualquer (o
+// `PUT /accounts/whatsapp` do perfil) não provaria posse de nada — e o OTP de
+// exclusão acabaria indo para um número escolhido por quem tem a sessão.
+// ---------------------------------------------------------------------------
+
+/** O mesmo número não pode estar confirmado em duas contas (mesmo dedupe do vínculo). */
+async function assertPhoneFreeForAccount(phoneHash: string, accountId: string): Promise<void> {
+  const res = await query<{ id: string }>(
+    `SELECT id FROM client_accounts WHERE whatsapp_phone_hash = $1 AND id <> $2 LIMIT 1`,
+    [phoneHash, accountId]
+  );
+  if (res.rows[0]) {
+    throw err(409, "PHONE_IN_USE", "Este número já está confirmado em outra conta do portal do cliente.");
+  }
+}
+
+/**
+ * Passo 1: envia o código de confirmação para o número INFORMADO (reusa o MESMO fluxo de OTP
+ * do login, com o propósito 'whatsapp_confirm'). Nada é gravado na conta ainda.
+ */
+export async function requestWhatsappConfirmation(input: {
+  accountId: string;
+  phone: string;
+}): Promise<{ ok: true; masked: string; devCode?: string }> {
+  const normalized = normalizePhoneBR(input.phone);
+  if (!normalized) throw err(400, "INVALID_PHONE", "Informe um WhatsApp válido com DDD.");
+  const phoneHash = hashPhoneBR(normalized, config.KIKIN_CLIENT_PORTAL_SECRET)!;
+  // Barra cedo o número que já é de outra conta (não gasta mensagem à toa).
+  await assertPhoneFreeForAccount(phoneHash, input.accountId);
+  const sent = await requestWhatsappOtp({ phone: normalized, purpose: "whatsapp_confirm" });
+  return { ok: true, masked: sent.masked, ...(sent.devCode ? { devCode: sent.devCode } : {}) };
+}
+
+/**
+ * Passo 2: confere o código e, só então, grava hash + máscara + valor cifrado do número na
+ * conta (com `whatsapp_phone_verified_at`). O código é de uso único; em código errado as
+ * tentativas são contadas pela mesma rotina do login.
+ */
+export async function confirmWhatsappForAccount(input: {
+  accountId: string;
+  phone: string;
+  code: string;
+}): Promise<{ ok: true; masked: string; account: PublicAccount }> {
+  const normalized = normalizePhoneBR(input.phone);
+  if (!normalized) throw err(400, "INVALID_PHONE", "Informe um WhatsApp válido com DDD.");
+  const code = String(input.code ?? "").trim();
+  if (!/^\d{6}$/.test(code)) {
+    throw err(400, "VALIDATION_ERROR", "Informe o código de 6 dígitos enviado por WhatsApp.");
+  }
+  const phoneHash = hashPhoneBR(normalized, config.KIKIN_CLIENT_PORTAL_SECRET)!;
+
+  await checkWhatsappOtp({ phoneHash, code, purpose: "whatsapp_confirm" });
+  await assertPhoneFreeForAccount(phoneHash, input.accountId);
+  // Uso único ANTES de gravar: um código já usado (ou expirado na corrida) não vira número.
+  await markWhatsappOtpUsed({ phoneHash, code, purpose: "whatsapp_confirm", db: defaultDb });
+
+  // Reuso do que já existe: grava hash/máscara/cifra da conta (LGPD: nunca o número em claro).
+  const account = await updateWhatsapp(input.accountId, normalized, { verified: true });
+  return { ok: true, masked: account.whatsappMask || maskPhoneBR(normalized)!, account };
 }
 
 export type WhatsappVerifyOutcome =

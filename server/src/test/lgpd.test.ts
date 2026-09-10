@@ -123,6 +123,25 @@ const dbFake = vi.hoisted(() => {
     // multilinha e a formatação não deve interferir no reconhecimento.
     const sql = text.replace(/\s+/g, " ");
 
+    // ------------------------------------------- client_accounts: dedupe de telefone
+    // confirmWhatsappForAccount: o número não pode ser de OUTRA conta (mesmo dedupe do vínculo)
+    if (/SELECT id FROM client_accounts WHERE whatsapp_phone_hash = \$1 AND id <> \$2/i.test(sql)) {
+      const [phoneHash, accountId] = params;
+      const row = state.accounts.find((a) => a.whatsapp_phone_hash === phoneHash && a.id !== accountId);
+      return { rows: row ? [{ id: row.id }] : [], rowCount: row ? 1 : 0 };
+    }
+
+    // ------------------------------- client_accounts: hash do telefone para a REMOÇÃO
+    // purgePortalAccountRows resolve o hash do telefone DENTRO da transação (client_otp_codes e
+    // client_temp_signup não têm account_id e casam por hash). É o único SELECT desta função.
+    if (/SELECT whatsapp_phone_hash FROM client_accounts WHERE id = \$1/i.test(sql)) {
+      const row = state.accounts.find((a) => a.id === params[0]);
+      return {
+        rows: row ? [{ whatsapp_phone_hash: row.whatsapp_phone_hash ?? null }] : [],
+        rowCount: row ? 1 : 0,
+      };
+    }
+
     // ---------------------------------------------------------- client_accounts
     // conta para EXPORT (colunas de exibição)
     if (/FROM client_accounts WHERE id = \$1/i.test(sql) && /consent_terms_at/i.test(sql)) {
@@ -133,6 +152,25 @@ const dbFake = vi.hoisted(() => {
     if (/FROM client_accounts WHERE id = \$1/i.test(sql) && /password_hash/i.test(sql)) {
       const row = state.accounts.find((a) => a.id === params[0]);
       return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
+    }
+    // getAccount (conta pública devolvida por PUT/confirm do WhatsApp)
+    if (/FROM client_accounts WHERE id = \$1/i.test(sql) && /whatsapp_phone_masked/i.test(sql)) {
+      const row = state.accounts.find((a) => a.id === params[0]);
+      return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
+    }
+    // updateWhatsapp: grava hash + máscara + cifra (+ verified_at quando veio de OTP)
+    if (/UPDATE client_accounts SET whatsapp_phone_hash = \$1/i.test(sql)) {
+      const [hash, masked, enc, accountId, verified] = params;
+      const acc = state.accounts.find((a) => a.id === accountId);
+      if (!acc) return { rows: [], rowCount: 0 };
+      const nowIso = new Date().toISOString();
+      acc.whatsapp_phone_hash = hash;
+      acc.whatsapp_phone_masked = masked;
+      acc.whatsapp_phone_enc = enc;
+      acc.whatsapp_updated_at = nowIso;
+      acc.updated_at = nowIso;
+      if (verified === true) acc.whatsapp_phone_verified_at = nowIso;
+      return { rows: [], rowCount: 1 };
     }
 
     // ------------------------------------------------- client_account_sessions
@@ -312,15 +350,20 @@ const kikinFake = vi.hoisted(() => {
     calls: [] as Array<{ method: string; input: any }>,
     salons: [] as any[],
     appointments: [] as any[],
+    // Simulação de indisponibilidade: é assim que os testes de export PARCIAL derrubam uma
+    // leitura específica sem tocar em nada além do cliente do Kikin.
+    fail: { salons: false, appointments: false },
   };
 
   class KikinPortalClient {
     async listSalons() {
       state.calls.push({ method: "listSalons", input: null });
+      if (state.fail.salons) throw new Error("Kikin indisponível (listSalons)");
       return { salons: state.salons };
     }
     async listAppointments(input: any) {
       state.calls.push({ method: "listAppointments", input });
+      if (state.fail.appointments) throw new Error("Kikin indisponível (listAppointments)");
       return { appointments: state.appointments.filter((a: any) => a.salonId === input.salonId) };
     }
     async ensureClient(input: any) {
@@ -404,6 +447,8 @@ function seedPasswordAccount() {
     whatsapp_phone_hash: WA_PHONE_HASH,
     whatsapp_phone_masked: "(11) ****-7777",
     whatsapp_phone_enc: encryptPhone(WA_PHONE_NORMALIZED),
+    // Sem `whatsapp_phone_verified_at`: número apenas digitado no perfil. A prova desta conta é a
+    // SENHA (precedência em proofMethodFor), e o export deve refletir que não houve verificação.
     consent_terms_at: "2026-01-01T09:00:00.000Z",
     created_at: "2026-01-01T09:00:00.000Z",
     updated_at: "2026-01-05T09:00:00.000Z",
@@ -523,12 +568,42 @@ function seedWhatsappAccount(overrides: Record<string, any> = {}) {
     whatsapp_phone_hash: WA_PHONE_HASH,
     whatsapp_phone_masked: "(11) ****-7777",
     whatsapp_phone_enc: encryptPhone(WA_PHONE_NORMALIZED),
+    whatsapp_phone_verified_at: "2026-02-01T09:05:00.000Z",
     consent_terms_at: "2026-02-01T09:00:00.000Z",
     created_at: "2026-02-01T09:00:00.000Z",
     updated_at: "2026-02-01T09:00:00.000Z",
     ...overrides,
   });
 }
+
+/**
+ * Conta criada por Google/Microsoft: SEM senha e SEM WhatsApp — é exatamente o caso que ficava
+ * travado em HML (409 PROOF_UNAVAILABLE sem saída para o titular).
+ */
+function seedSocialAccount(overrides: Record<string, any> = {}) {
+  dbFake.state.accounts.push({
+    id: ACCOUNT_ID,
+    email: EMAIL,
+    email_normalized: EMAIL,
+    full_name: "Só Google",
+    password_hash: null,
+    email_verified_at: "2026-03-01T09:00:00.000Z",
+    avatar_url: "https://exemplo/avatar.png",
+    auth_provider: "google",
+    whatsapp_phone_hash: null,
+    whatsapp_phone_enc: null,
+    whatsapp_phone_masked: null,
+    consent_terms_at: "2026-03-01T09:00:00.000Z",
+    created_at: "2026-03-01T09:00:00.000Z",
+    updated_at: "2026-03-01T09:00:00.000Z",
+    ...overrides,
+  });
+}
+
+/** Número NOVO informado na hora da exclusão (não é o da conta do seed). */
+const NEW_PHONE_INPUT = "(21) 97777-6666";
+const NEW_PHONE_NORMALIZED = "5521977776666";
+const NEW_PHONE_HASH = hashPhoneBR(NEW_PHONE_NORMALIZED, SECRET) as string;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let fetchSpy: any;
@@ -553,6 +628,7 @@ beforeEach(() => {
     },
   ];
   whatsappFake.state.sends = [];
+  kikinFake.state.fail = { salons: false, appointments: false };
   // A exclusão NÃO pode falar com o Kikin por HTTP.
   fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
     throw new Error("fetch não pode ser chamado pela exclusão de conta (Kikin intacto).");
@@ -633,6 +709,10 @@ describe("LGPD — exportar meus dados", () => {
 
     expect(res.status).toBe(200);
     const raw = res.text;
+    // FIX 4: o WhatsApp do PRÓPRIO titular sai COMPLETO (é o dado dele — Art. 18, II), por isso
+    // WA_PHONE_NORMALIZED NÃO está nesta lista. O que continua proibido: hash de telefone, hash
+    // de senha, hash de token, valor cifrado, código OTP e o telefone dos VÍNCULOS (que o portal
+    // só conhece mascarado) — LINK_PHONE_NORMALIZED segue proibido logo abaixo.
     for (const forbidden of [
       "password_hash",
       PASSWORD_HASH,
@@ -644,16 +724,17 @@ describe("LGPD — exportar meus dados", () => {
       "whatsapp_phone_hash",
       WA_PHONE_HASH,
       LINK_PHONE_HASH,
-      WA_PHONE_NORMALIZED,
       LINK_PHONE_NORMALIZED,
       PUSH_ENDPOINT,
       "TOKEN-SUPER-SECRETO-NAO-PODE-VAZAR",
+      WA_OTP_CODE,
     ]) {
       expect(raw).not.toContain(forbidden);
     }
-    // o mascarado continua presente (é o dado útil ao titular)
+    // o mascarado continua presente (é o dado útil ao titular) e o completo também
     expect(raw).toContain("(11) ****-7777");
     expect(raw).toContain("fcm.googleapis.com");
+    expect(JSON.parse(raw).conta.whatsappCompleto).toBe(WA_PHONE_NORMALIZED);
     // nenhuma linha de outra conta entrou no arquivo
     expect(raw).not.toContain(OTHER_EMAIL);
     expect(raw).not.toContain("Outra Pessoa");
@@ -732,28 +813,40 @@ describe("LGPD — pedido de exclusão (qual prova a conta exige)", () => {
     expect(whatsappFake.state.sends).toHaveLength(0);
   });
 
-  it("conta sem senha e sem WhatsApp ⇒ 409 PROOF_UNAVAILABLE (não inventa prova)", async () => {
-    dbFake.state.accounts.push({
-      id: ACCOUNT_ID,
-      email: EMAIL,
-      email_normalized: EMAIL,
-      full_name: "Só Google",
-      password_hash: null,
-      auth_provider: "google",
-      whatsapp_phone_hash: null,
-      whatsapp_phone_enc: null,
-      whatsapp_phone_masked: null,
-      consent_terms_at: null,
-      created_at: "2026-01-01T09:00:00.000Z",
-      updated_at: "2026-01-01T09:00:00.000Z",
-    });
+  it("número NÃO verificado não serve como prova: cai em NEEDS_WHATSAPP até confirmar por código", async () => {
+    // O campo de perfil (PUT /accounts/whatsapp) grava o número SEM verificar. Usá-lo como prova
+    // de identidade deixaria a exclusão (irreversível) apoiada em número nunca comprovado.
+    seedWhatsappAccount({ whatsapp_phone_verified_at: null });
+    const res = await request(createApp())
+      .post("/api/v1/accounts/me/delete/request")
+      .set("Authorization", `Bearer ${token(WA_ACCOUNT_ID)}`)
+      .send({ sendCode: false });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("PROOF_UNAVAILABLE");
+    expect(res.body.reason).toBe("NEEDS_WHATSAPP");
+    expect(res.body.needsWhatsapp).toBe(true);
+    // nenhuma mensagem sai para um canal não comprovado
+    expect(whatsappFake.state.sends).toHaveLength(0);
+  });
+
+  it("conta sem senha e sem WhatsApp ⇒ MANTÉM 409 PROOF_UNAVAILABLE, agora com reason NEEDS_WHATSAPP (não inventa prova)", async () => {
+    seedSocialAccount();
     const res = await request(createApp())
       .post("/api/v1/accounts/me/delete/request")
       .set("Authorization", `Bearer ${token()}`)
       .send({});
+    // compatibilidade do contrato: mesmo status e mesmo `code` de antes...
     expect(res.status).toBe(409);
     expect(res.body.code).toBe("PROOF_UNAVAILABLE");
+    // ...e o caminho novo: a UI sabe que pode confirmar um WhatsApp em vez de mandar ao suporte
+    expect(res.body.reason).toBe("NEEDS_WHATSAPP");
+    expect(res.body.needsWhatsapp).toBe(true);
+    expect(res.body.confirmWord).toBe(CONFIRM_WORD);
+    expect(res.body.error).toMatch(/confirm/i);
+    // nada foi enviado e nada foi gravado na conta
     expect(whatsappFake.state.sends).toHaveLength(0);
+    expect(dbFake.state.accounts[0]).toMatchObject({ whatsapp_phone_hash: null, whatsapp_phone_enc: null });
   });
 
   it("sem token ⇒ 401", async () => {
@@ -992,5 +1085,384 @@ describe("LGPD — excluir minha conta (prova + EXCLUIR)", () => {
       .send({ confirm: "EXCLUIR", password: PASSWORD });
     expect(res.status).toBe(401);
     expect(dbFake.deleteOrder()).toEqual([]);
+  });
+});
+
+// ============================================================================
+// FIX 1 — conta sem senha e sem WhatsApp (Google/Microsoft): confirmar o WhatsApp
+// por OTP para poder exercer o Art. 18, IV/VI sozinho.
+// ============================================================================
+
+describe("LGPD — conta social (sem senha, sem WhatsApp) confirma o número e exclui", () => {
+  it("exclusão direta sem prova ⇒ MESMO 409 + reason NEEDS_WHATSAPP e NADA é apagado", async () => {
+    seedSocialAccount();
+    const res = await request(createApp())
+      .post("/api/v1/accounts/me/delete")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({ confirm: CONFIRM_WORD });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("PROOF_UNAVAILABLE");
+    expect(res.body.reason).toBe("NEEDS_WHATSAPP");
+    expect(dbFake.deleteOrder()).toEqual([]);
+    expect(dbFake.state.accounts).toHaveLength(1);
+    expect(dbFake.state.audit).toHaveLength(0);
+  });
+
+  it("passo 1: envia o código ao número informado e NÃO grava nada na conta ainda", async () => {
+    seedSocialAccount();
+    const res = await request(createApp())
+      .post("/api/v1/accounts/me/whatsapp/confirm/request")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({ phone: NEW_PHONE_INPUT });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.masked).toBe("(21) ****-6666");
+    expect(res.body.devCode).toMatch(/^\d{6}$/);
+
+    // reusou o MESMO fluxo de OTP, com o propósito próprio da confirmação
+    const inserts = dbFake.sqlMatching(/INSERT INTO client_otp_codes/i);
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0].params[0]).toBe(NEW_PHONE_HASH);
+    expect(inserts[0].params[1]).toBe("whatsapp_confirm");
+    expect(inserts[0].params[2]).toBe(sha256(res.body.devCode));
+
+    // o código vai por WhatsApp UMA vez, para o número informado
+    expect(whatsappFake.state.sends).toHaveLength(1);
+    expect(whatsappFake.state.sends[0].to).toBe(NEW_PHONE_NORMALIZED);
+    expect(whatsappFake.state.sends[0].message).toContain(res.body.devCode);
+
+    // nada foi gravado: sem código conferido, o número não pertence à conta
+    expect(dbFake.state.accounts[0]).toMatchObject({ whatsapp_phone_hash: null, whatsapp_phone_enc: null });
+    expect(dbFake.sqlMatching(/UPDATE client_accounts SET whatsapp_phone_hash/i)).toHaveLength(0);
+  });
+
+  it("passo 2: código errado ⇒ 400 OTP_INVALID e o número NÃO entra na conta", async () => {
+    seedSocialAccount();
+    const app = createApp();
+    await request(app)
+      .post("/api/v1/accounts/me/whatsapp/confirm/request")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({ phone: NEW_PHONE_INPUT });
+
+    const res = await request(app)
+      .post("/api/v1/accounts/me/whatsapp/confirm")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({ phone: NEW_PHONE_INPUT, code: "000000" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("OTP_INVALID");
+    expect(dbFake.state.accounts[0]).toMatchObject({ whatsapp_phone_hash: null, whatsapp_phone_enc: null });
+    expect(dbFake.state.otp[0].attempts).toBe(1);
+  });
+
+  it("passo 2: código certo grava hash + máscara + cifra + verified_at e o código é de uso único", async () => {
+    seedSocialAccount();
+    const app = createApp();
+    const pedido = await request(app)
+      .post("/api/v1/accounts/me/whatsapp/confirm/request")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({ phone: NEW_PHONE_INPUT });
+    const code = pedido.body.devCode as string;
+
+    const res = await request(app)
+      .post("/api/v1/accounts/me/whatsapp/confirm")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({ phone: NEW_PHONE_INPUT, code });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.account.whatsappMask).toBe("(21) ****-6666");
+
+    const acc = dbFake.state.accounts[0];
+    expect(acc.whatsapp_phone_hash).toBe(NEW_PHONE_HASH);
+    expect(acc.whatsapp_phone_masked).toBe("(21) ****-6666");
+    expect(acc.whatsapp_phone_enc).toBeTruthy();
+    expect(acc.whatsapp_phone_enc).not.toContain(NEW_PHONE_NORMALIZED); // cifrado, nunca em claro
+    expect(acc.whatsapp_phone_verified_at).toBeTruthy();
+
+    // uso único: repetir o mesmo código não confirma de novo
+    const repeat = await request(app)
+      .post("/api/v1/accounts/me/whatsapp/confirm")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({ phone: NEW_PHONE_INPUT, code });
+    expect(repeat.status).toBe(400);
+    expect(repeat.body.code).toBe("OTP_EXPIRED");
+  });
+
+  it("número já confirmado em OUTRA conta ⇒ 409 PHONE_IN_USE (nem envia, nem grava)", async () => {
+    seedSocialAccount();
+    seedWhatsappAccount(); // já tem WA_PHONE_HASH
+    const app = createApp();
+
+    const pedido = await request(app)
+      .post("/api/v1/accounts/me/whatsapp/confirm/request")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({ phone: WA_PHONE });
+    expect(pedido.status).toBe(409);
+    expect(pedido.body.code).toBe("PHONE_IN_USE");
+    expect(whatsappFake.state.sends).toHaveLength(0);
+    expect(dbFake.state.accounts[0].whatsapp_phone_hash).toBeNull();
+  });
+
+  it("fluxo completo Google: confirma o número → recebe o OTP de exclusão nele → exclui a conta", async () => {
+    seedSocialAccount();
+    const app = createApp();
+
+    // (1) a conta não tem prova: 409 com NEEDS_WHATSAPP
+    const semProva = await request(app)
+      .post("/api/v1/accounts/me/delete/request")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({});
+    expect(semProva.status).toBe(409);
+    expect(semProva.body.reason).toBe("NEEDS_WHATSAPP");
+
+    // (2) confirma o WhatsApp agora (código no número informado)
+    const pedido = await request(app)
+      .post("/api/v1/accounts/me/whatsapp/confirm/request")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({ phone: NEW_PHONE_INPUT });
+    expect(pedido.status).toBe(200);
+    const confirmacao = await request(app)
+      .post("/api/v1/accounts/me/whatsapp/confirm")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({ phone: NEW_PHONE_INPUT, code: pedido.body.devCode });
+    expect(confirmacao.status).toBe(200);
+
+    // (3) agora a prova existe: o desafio de exclusão aponta o WhatsApp e não envia nada ainda
+    const desafio = await request(app)
+      .post("/api/v1/accounts/me/delete/request")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({ sendCode: false });
+    expect(desafio.status).toBe(200);
+    expect(desafio.body).toMatchObject({ method: "whatsapp_otp", whatsappMask: "(21) ****-6666", confirmWord: CONFIRM_WORD });
+    expect(whatsappFake.state.sends).toHaveLength(1); // só a confirmação do número
+
+    // (4) o código de EXCLUSÃO vai para o número CONFIRMADO
+    const codigo = await request(app)
+      .post("/api/v1/accounts/me/delete/request")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({});
+    expect(codigo.status).toBe(200);
+    expect(codigo.body.codeSent).toBe(true);
+    expect(whatsappFake.state.sends).toHaveLength(2);
+    expect(whatsappFake.state.sends[1].to).toBe(NEW_PHONE_NORMALIZED);
+    const inserts = dbFake.sqlMatching(/INSERT INTO client_otp_codes/i);
+    expect(inserts.at(-1)?.params).toEqual([NEW_PHONE_HASH, "account_deletion", sha256(codigo.body.devCode)]);
+
+    // (5) exclusão com o código + palavra EXCLUIR
+    const res = await request(app)
+      .post("/api/v1/accounts/me/delete")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({ confirm: CONFIRM_WORD, otpCode: codigo.body.devCode });
+
+    expect(res.status).toBe(200);
+    expect(res.body.deleted).toBe(true);
+    expect(res.body.proofMethod).toBe("whatsapp_otp");
+    expect(dbFake.state.accounts).toHaveLength(0);
+    expect(dbFake.state.audit[0].proof_method).toBe("whatsapp_otp");
+    expect(dbFake.deleteOrder()).toEqual([...DELETION_ORDER]);
+    // Kikin intacto do começo ao fim (nada de escrita/leitura lá)
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rotas de confirmação exigem sessão e não aceitam payload vazio", async () => {
+    seedSocialAccount();
+    const app = createApp();
+    const semToken = await request(app).post("/api/v1/accounts/me/whatsapp/confirm/request").send({ phone: NEW_PHONE_INPUT });
+    expect(semToken.status).toBe(401);
+
+    const semPhone = await request(app)
+      .post("/api/v1/accounts/me/whatsapp/confirm/request")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({});
+    expect(semPhone.status).toBe(400);
+    expect(semPhone.body.code).toBe("VALIDATION_ERROR");
+
+    const semCodigo = await request(app)
+      .post("/api/v1/accounts/me/whatsapp/confirm")
+      .set("Authorization", `Bearer ${token()}`)
+      .send({ phone: NEW_PHONE_INPUT });
+    expect(semCodigo.status).toBe(400);
+    expect(dbFake.sqlMatching(/INSERT INTO client_otp_codes/i)).toHaveLength(0);
+  });
+});
+
+// ============================================================================
+// FIX 2 — Art. 18, VII: compartilhamento com operadores
+// ============================================================================
+
+describe("LGPD — export informa o compartilhamento (Art. 18, VII)", () => {
+  it("traz a lista única de operadores, com finalidade, país e transferência internacional", async () => {
+    seedPasswordAccount();
+    const res = await request(createApp())
+      .get("/api/v1/accounts/me/export")
+      .set("Authorization", `Bearer ${token()}`);
+    const body = JSON.parse(res.text);
+
+    const nomes = body.compartilhamento.operadores.map((o: any) => o.nome);
+    expect(nomes).toEqual([
+      "Meta Platforms (WhatsApp Business Cloud API)",
+      "Functional Software, Inc. (Sentry)",
+      "Google LLC",
+      "Microsoft Corporation",
+      "Asaas Gestão de Pagamentos Ltda",
+      "Cloudflare, Inc.",
+      "Provedor de e-mail (SMTP configurado no ambiente)",
+      "Provedor de Web Push do navegador (Google/Mozilla/Apple)",
+    ]);
+    // cada item diz para que serve e onde é tratado
+    expect(body.compartilhamento.operadores[0]).toMatchObject({
+      finalidade: "envio de confirmações e lembretes",
+      pais: "EUA",
+      transferenciaInternacional: "sim",
+    });
+    expect(body.compartilhamento.operadores[4]).toMatchObject({ pais: "Brasil", transferenciaInternacional: "nao" });
+    expect(body.compartilhamento.operadores[6]).toMatchObject({ pais: "conforme provedor", transferenciaInternacional: "conforme_provedor" });
+
+    // Art. 33: quais são transferência internacional + base legal, dito com todas as letras
+    const nota = body.compartilhamento.nota as string;
+    expect(nota).toMatch(/Art\. 33/);
+    expect(nota).toMatch(/executar o serviço/);
+    expect(nota).toMatch(/consentimento/);
+    expect(nota).toMatch(/NÃO vende/);
+    // todos os operadores baseados nos EUA marcados como "sim"
+    const nosEua = body.compartilhamento.operadores.filter((o: any) => o.pais === "EUA");
+    expect(nosEua).toHaveLength(5);
+    expect(nosEua.every((o: any) => o.transferenciaInternacional === "sim")).toBe(true);
+
+    // o aviso do arquivo diz que os operadores estão listados
+    expect(body.aviso).toMatch(/operadores\/subprocessadores/i);
+    expect(body.aviso).toMatch(/Art\. 18, VII/);
+  });
+});
+
+// ============================================================================
+// FIX 3 — exportação nunca sai incompleta em silêncio
+// ============================================================================
+
+describe("LGPD — export parcial sinaliza falha em vez de engolir", () => {
+  it("caso feliz: parcial=false e falhas vazio", async () => {
+    seedPasswordAccount();
+    const res = await request(createApp())
+      .get("/api/v1/accounts/me/export")
+      .set("Authorization", `Bearer ${token()}`);
+    const body = JSON.parse(res.text);
+    expect(body.parcial).toBe(false);
+    expect(body.falhas).toEqual([]);
+    expect(body.agendamentos.futuros).toHaveLength(1);
+  });
+
+  it("DB falha na leitura dos vínculos ⇒ parcial=true + motivo, e o resto do arquivo continua", async () => {
+    seedPasswordAccount();
+    const original = dbFake.runQuery;
+    const spy = vi.spyOn(dbFake, "runQuery").mockImplementation(async (text: string, params: any[] = []) => {
+      if (/FROM account_establishment_links WHERE account_id/i.test(text)) throw new Error("banco indisponível");
+      return original(text, params);
+    });
+
+    const res = await request(createApp())
+      .get("/api/v1/accounts/me/export")
+      .set("Authorization", `Bearer ${token()}`);
+    spy.mockRestore();
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.text);
+    expect(body.parcial).toBe(true);
+    expect(body.falhas).toContain("vínculos com estabelecimentos indisponíveis no momento");
+    expect(body.vinculos).toEqual([]);
+    expect(body.agendamentos.futuros).toEqual([]);
+    // o que NÃO depende daquela leitura continua íntegro (o arquivo não vira um erro)
+    expect(body.conta.nome).toBe("Titular de Teste");
+    expect(body.seguranca.sessoesAtivas).toBe(2);
+    expect(body.compartilhamento.operadores).toHaveLength(8);
+    expect(body.consentimentos[0].tipo).toBe("termos_e_politica_de_privacidade");
+    // nenhuma mensagem de falha é "silenciosa": o motivo está no arquivo
+    expect(body.aviso).toMatch(/`parcial` for true/);
+  });
+
+  it("Kikin fora do ar nos agendamentos ⇒ parcial=true + motivo por leitura, vínculos preservados", async () => {
+    seedPasswordAccount();
+    kikinFake.state.fail.appointments = true;
+    // O serviço de links registra a falha no console (produção) — aqui só silenciamos o ruído.
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const res = await request(createApp())
+      .get("/api/v1/accounts/me/export")
+      .set("Authorization", `Bearer ${token()}`);
+    consoleSpy.mockRestore();
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.text);
+    expect(body.parcial).toBe(true);
+    expect(body.falhas).toContain("agendamentos do estabelecimento indisponíveis no momento");
+    expect(body.falhas).toContain("histórico de agendamentos indisponível no momento");
+    expect(body.agendamentos).toEqual({ futuros: [], historico: [] });
+    expect(body.vinculos).toHaveLength(2);
+    expect(body.vinculos[0].estabelecimentoNome).toBe("Studio Teste");
+  });
+
+  it("Kikin fora do ar no /salons ⇒ parcial=true (some só o NOME do estabelecimento)", async () => {
+    seedPasswordAccount();
+    kikinFake.state.fail.salons = true;
+
+    const res = await request(createApp())
+      .get("/api/v1/accounts/me/export")
+      .set("Authorization", `Bearer ${token()}`);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.text);
+    expect(body.parcial).toBe(true);
+    expect(body.falhas).toContain("nomes dos estabelecimentos indisponíveis no momento");
+    // os vínculos continuam (nome nulo) — dado incompleto, mas declarado
+    expect(body.vinculos).toHaveLength(2);
+    expect(body.vinculos[0].estabelecimentoNome).toBeNull();
+    expect(body.vinculos[0].telefoneMascarado).toBe("(11) ****-2222");
+  });
+});
+
+// ============================================================================
+// FIX 4 — telefone do próprio titular COMPLETO (Art. 18, II)
+// ============================================================================
+
+describe("LGPD — export traz o telefone COMPLETO do titular e explica os vínculos", () => {
+  it("decifra o número do titular, mantém a máscara e marca o vínculo como indisponível em claro", async () => {
+    seedPasswordAccount();
+    const res = await request(createApp())
+      .get("/api/v1/accounts/me/export")
+      .set("Authorization", `Bearer ${token()}`);
+    const raw = res.text;
+    const body = JSON.parse(raw);
+
+    // o próprio dado, completo, decifrado de whatsapp_phone_enc
+    expect(body.conta.whatsappCompleto).toBe(WA_PHONE_NORMALIZED);
+    expect(body.conta.whatsappMascarado).toBe("(11) ****-7777");
+    expect(body.conta.whatsappVerificadoEm).toBeNull();
+
+    // vínculos: máscara preservada + explicação explícita de por que não há o número completo
+    for (const v of body.vinculos) {
+      expect(v.telefoneCompletoIndisponivel).toBe(true);
+      expect(v.telefoneMascarado).toBe("(11) ****-2222");
+      expect(v).not.toHaveProperty("telefoneCompleto");
+    }
+    expect(body.notas.telefonesDeVinculo).toMatch(/mascarad/i);
+    expect(body.notas.telefonesDeVinculo).toMatch(/estabelecimento/i);
+    expect(body.notas.telefoneCompleto).toMatch(/AES-256-GCM/);
+
+    // nunca hash: nem do titular, nem do vínculo
+    for (const forbidden of [WA_PHONE_HASH, LINK_PHONE_HASH, LINK_PHONE_NORMALIZED, "phone_hash"]) {
+      expect(raw).not.toContain(forbidden);
+    }
+  });
+
+  it("conta sem WhatsApp ⇒ whatsappCompleto null (não inventa dado)", async () => {
+    seedSocialAccount();
+    const res = await request(createApp())
+      .get("/api/v1/accounts/me/export")
+      .set("Authorization", `Bearer ${token()}`);
+    const body = JSON.parse(res.text);
+    expect(body.conta.whatsappCompleto).toBeNull();
+    expect(body.conta.whatsappMascarado).toBeNull();
   });
 });

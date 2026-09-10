@@ -276,8 +276,18 @@ export async function updateProfile(accountId: string, fullName: string): Promis
   return account;
 }
 
-/** Define o WhatsApp único da conta (contato/lembretes). LGPD: só hash + máscara + cifra. */
-export async function updateWhatsapp(accountId: string, phone: string): Promise<PublicAccount> {
+/**
+ * Define o WhatsApp único da conta (contato/lembretes). LGPD: só hash + máscara + cifra.
+ *
+ * `opts.verified` marca `whatsapp_phone_verified_at`: usar SOMENTE depois de conferir um código
+ * enviado PARA esse número (ver `confirmWhatsappForAccount`). O `PUT /accounts/whatsapp` do
+ * perfil continua gravando sem verificação (é o titular digitando o próprio contato logado).
+ */
+export async function updateWhatsapp(
+  accountId: string,
+  phone: string,
+  opts: { verified?: boolean } = {}
+): Promise<PublicAccount> {
   const normalized = normalizePhoneBR(phone);
   if (!normalized) throw err(400, "INVALID_PHONE", "Informe um número de WhatsApp válido com DDD.");
   const hash = hashPhoneBR(normalized, config.KIKIN_CLIENT_PORTAL_SECRET)!;
@@ -286,9 +296,10 @@ export async function updateWhatsapp(accountId: string, phone: string): Promise<
   // (ex.: o código OTP de exclusão de conta — LGPD Art. 18) sem guardar o número em claro.
   await query(
     `UPDATE client_accounts SET whatsapp_phone_hash = $1, whatsapp_phone_masked = $2,
-            whatsapp_phone_enc = $3, whatsapp_updated_at = now(), updated_at = now()
+            whatsapp_phone_enc = $3, whatsapp_updated_at = now(), updated_at = now(),
+            whatsapp_phone_verified_at = CASE WHEN $5::boolean THEN now() ELSE whatsapp_phone_verified_at END
      WHERE id = $4`,
-    [hash, masked, encryptPhone(normalized), accountId]
+    [hash, masked, encryptPhone(normalized), accountId, opts.verified === true]
   );
   const account = await getAccount(accountId);
   if (!account) throw err(404, "NOT_FOUND", "Conta não encontrada.");

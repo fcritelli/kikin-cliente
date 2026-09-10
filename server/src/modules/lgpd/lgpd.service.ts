@@ -5,6 +5,12 @@ import { config } from "../../config.js";
 import { err, normalizeEmail } from "../accounts/accounts.service.js";
 import * as links from "../links/links.service.js";
 import * as whatsappAuth from "../../services/whatsapp/whatsapp-auth.service.js";
+import {
+  AVISO_OPERADORES,
+  OPERATORS_NOTE,
+  exportOperators,
+  type OperatorInfo,
+} from "./operators.js";
 
 /**
  * Direitos do titular no PORTAL DO CLIENTE (LGPD Art. 18): exportação (portabilidade/
@@ -33,7 +39,12 @@ export interface Db extends DbClient {
   withTransaction<T>(fn: (client: DbClient) => Promise<T>): Promise<T>;
 }
 
-const realDb: Db = {
+/**
+ * Adaptador do Postgres do portal no formato `Db` (injetável). Exportado para que a LISTA DE
+ * SUPRESSÃO (`scripts/apply-suppression-list.ts`) use exatamente a mesma conexão/transação da
+ * exclusão, em vez de montar um segundo caminho para o banco.
+ */
+export const realDb: Db = {
   query: (text, params) => query(text, params) as unknown as Promise<{ rows: any[]; rowCount: number | null }>,
   withTransaction: (fn) => withTransaction((client) => fn(client as unknown as DbClient)),
 };
@@ -94,12 +105,41 @@ const AVISO_ESCOPO =
   "conta aqui NÃO os remove. Para exportar ou remover esses dados no salão, fale diretamente " +
   "com o estabelecimento.";
 
+/** Explicações dos campos de telefone (Art. 18, II: acesso ao PRÓPRIO dado). */
+const NOTA_TELEFONE_COMPLETO =
+  "O WhatsApp da sua conta aparece COMPLETO em `conta.whatsappCompleto` (e também em máscara) " +
+  "porque é o seu próprio dado: o portal guarda esse número cifrado (AES-256-GCM) e o decifra " +
+  "aqui, só para você. Nenhum hash de telefone é incluído neste arquivo.";
+
+const NOTA_TELEFONES_DE_VINCULO =
+  "Nos vínculos com estabelecimentos o telefone aparece apenas MASCARADO e marcado com " +
+  "`telefoneCompletoIndisponivel: true`: o portal guarda só o hash HMAC e a máscara do número " +
+  "usado naquele cadastro — o número completo é do cadastro do ESTABELECIMENTO e o portal não " +
+  "consegue lê-lo. Para obter o número completo nesses cadastros, fale com o estabelecimento.";
+
+const AVISO_PARCIAL =
+  "Se `parcial` for true, alguma leitura (vínculos ou agendamentos) não pôde ser concluída " +
+  "naquele instante: o motivo está em `falhas` e o restante dos dados continua válido. Baixe " +
+  "o arquivo novamente mais tarde para obter a versão completa.";
+
 // ------------------------------------------------------------------------- utilidades
 
 /** HMAC-SHA256 com o segredo do portal: pseudônimo estável e não reversível para auditoria. */
-function hmac(value: string | null | undefined): string | null {
+export function hmac(value: string | null | undefined): string | null {
   if (!value) return null;
   return crypto.createHmac("sha256", config.KIKIN_CLIENT_PORTAL_SECRET).update(value).digest("hex");
+}
+
+/**
+ * `account_ref_hash` de uma conta — pseudônimo gravado na auditoria da exclusão (Art. 37).
+ *
+ * ÚNICO lugar que define a fórmula: o registro da exclusão (`deleteAccount`) e a reaplicação
+ * pós-restauração de backup (lista de supressão) chamam ESTA função. Duplicar a fórmula em outro
+ * arquivo significaria, no dia em que o segredo ou o algoritmo mudar, uma lista de supressão que
+ * deixa de reconhecer as contas excluídas — falha silenciosa e irreversível.
+ */
+export function accountRefHash(accountId: string): string {
+  return hmac(accountId) as string;
 }
 
 function iso(value: unknown): string | null {
@@ -122,6 +162,11 @@ function dateStamp(now = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
+/** Registra o motivo de uma leitura degradada UMA única vez (a mesma falha pode repetir). */
+function registrar(diag: links.ReadDiagnostics, motivo: string): void {
+  if (!diag.falhas.includes(motivo)) diag.falhas.push(motivo);
+}
+
 // =============================================================================
 // 1. EXPORTAÇÃO (GET /api/v1/accounts/me/export)
 // =============================================================================
@@ -129,12 +174,19 @@ function dateStamp(now = new Date()): string {
 export interface AccountExport {
   formatVersion: number;
   generatedAt: string;
+  /** true quando alguma leitura degradou: o arquivo NUNCA sai incompleto em silêncio. */
+  parcial: boolean;
+  /** Motivos, em linguagem de titular, de cada leitura que falhou (vazio quando parcial=false). */
+  falhas: string[];
   conta: Row;
   vinculos: Row[];
   agendamentos: { futuros: Row[]; historico: Row[] };
   consentimentos: Row[];
   push: { dispositivos: Row[] };
   seguranca: Row;
+  /** Art. 18, VII: com quem o portal compartilha (lista única de operadores). */
+  compartilhamento: { operadores: OperatorInfo[]; nota: string };
+  notas: { telefoneCompleto: string; telefonesDeVinculo: string };
   aviso: string;
 }
 
@@ -146,26 +198,49 @@ interface AccountRow {
   avatar_url: string | null;
   auth_provider: string;
   whatsapp_phone_masked: string | null;
+  whatsapp_phone_enc: string | null;
+  whatsapp_phone_verified_at: Date | null;
   consent_terms_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
 
-/** Monta o JSON de exportação. NUNCA inclui hash de senha, token, telefone cru ou endereço de push. */
+/**
+ * Monta o JSON de exportação (LGPD Art. 18, II/V/VII).
+ *
+ * NUNCA inclui hash de senha, token, hash de telefone ou endereço de push. O telefone do
+ * PRÓPRIO titular sai COMPLETO (é o dado dele); o telefone dos vínculos, que o portal não
+ * conhece em claro, sai mascarado e marcado como indisponível.
+ *
+ * Falha de leitura degradada (vínculos/agendamentos) não é engolida: vira `parcial: true`
+ * + `falhas: [...]`, para o titular saber que aquele arquivo está incompleto.
+ */
 export async function buildAccountExport(accountId: string, db: Db = realDb): Promise<AccountExport> {
   const accRes = await db.query<AccountRow>(
     `SELECT id, email, full_name, email_verified_at, avatar_url, auth_provider,
-            whatsapp_phone_masked, consent_terms_at, created_at, updated_at
+            whatsapp_phone_masked, whatsapp_phone_enc, whatsapp_phone_verified_at,
+            consent_terms_at, created_at, updated_at
      FROM client_accounts WHERE id = $1`,
     [accountId]
   );
   const acc = accRes.rows[0];
   if (!acc) throw err(404, "NOT_FOUND", "Conta não encontrada.");
 
+  // Mesmo objeto passado às três leituras: cada falha degradada é registrada aqui.
+  const diag: links.ReadDiagnostics = { falhas: [] };
   const [linkList, futuros, historico, pushRes, sessRes, mailRes] = await Promise.all([
-    links.listLinks(accountId).catch(() => [] as links.EstablishmentLink[]),
-    links.listFutureAppointments(accountId).catch(() => [] as links.FutureAppointment[]),
-    links.listAppointmentsHistory(accountId).catch(() => [] as links.FutureAppointment[]),
+    links.listLinks(accountId, diag).catch(() => {
+      registrar(diag, "vínculos com estabelecimentos indisponíveis no momento");
+      return [] as links.EstablishmentLink[];
+    }),
+    links.listFutureAppointments(accountId, diag).catch(() => {
+      registrar(diag, "agendamentos do estabelecimento indisponíveis no momento");
+      return [] as links.FutureAppointment[];
+    }),
+    links.listAppointmentsHistory(accountId, diag).catch(() => {
+      registrar(diag, "histórico de agendamentos indisponível no momento");
+      return [] as links.FutureAppointment[];
+    }),
     db.query<{ endpoint: string; created_at: Date }>(
       `SELECT endpoint, created_at FROM push_subscriptions WHERE account_id = $1 ORDER BY created_at`,
       [accountId]
@@ -188,6 +263,10 @@ export async function buildAccountExport(accountId: string, db: Db = realDb): Pr
     estabelecimentoNome: l.salonName || null,
     nomeNoEstabelecimento: l.clientName,
     telefoneMascarado: l.phoneMask,
+    // O portal guarda só hash + máscara do telefone do vínculo: o número completo NÃO existe
+    // aqui (é dado do cadastro do estabelecimento). Dizemos isso no próprio item, em vez de
+    // deixar a ausência do campo ambígua.
+    telefoneCompletoIndisponivel: true,
     vinculadoEm: iso(l.confirmedAt),
     whatsappOptInEm: iso(l.whatsappOptInAt),
   }));
@@ -237,6 +316,8 @@ export async function buildAccountExport(accountId: string, db: Db = realDb): Pr
   return {
     formatVersion: 1,
     generatedAt: new Date().toISOString(),
+    parcial: diag.falhas.length > 0,
+    falhas: [...diag.falhas],
     conta: {
       id: acc.id,
       nome: acc.full_name,
@@ -244,6 +325,10 @@ export async function buildAccountExport(accountId: string, db: Db = realDb): Pr
       emailVerificadoEm: iso(acc.email_verified_at),
       provedorDeLogin: acc.auth_provider,
       whatsappMascarado: acc.whatsapp_phone_masked || null,
+      // Art. 18, II: o titular recebe o PRÓPRIO número completo (decifrado na hora, nunca
+      // gravado em claro) — antes o export só trazia a máscara, o que não é "acesso ao dado".
+      whatsappCompleto: whatsappAuth.decryptAccountPhone(acc.whatsapp_phone_enc),
+      whatsappVerificadoEm: iso(acc.whatsapp_phone_verified_at),
       avatarUrl: acc.avatar_url || null,
       criadaEm: iso(acc.created_at),
       atualizadaEm: iso(acc.updated_at),
@@ -256,7 +341,15 @@ export async function buildAccountExport(accountId: string, db: Db = realDb): Pr
       sessoesAtivas: Number(sessRes.rows[0]?.total || 0),
       tokensDeEmailPendentes: Number(mailRes.rows[0]?.total || 0),
     },
-    aviso: AVISO_ESCOPO,
+    compartilhamento: {
+      operadores: exportOperators(),
+      nota: OPERATORS_NOTE,
+    },
+    notas: {
+      telefoneCompleto: NOTA_TELEFONE_COMPLETO,
+      telefonesDeVinculo: NOTA_TELEFONES_DE_VINCULO,
+    },
+    aviso: [AVISO_ESCOPO, AVISO_OPERADORES, AVISO_PARCIAL].join(" "),
   };
 }
 
@@ -274,6 +367,23 @@ export function exportFilename(now = new Date()): string {
 // =============================================================================
 
 export type DeletionProofMethod = "password" | "whatsapp_otp";
+
+/**
+ * Por que a prova não pôde ser oferecida. `NEEDS_WHATSAPP` = a conta (ex.: criada por
+ * Google/Microsoft) não tem senha nem WhatsApp: a UI deve conduzir o titular a CONFIRMAR um
+ * WhatsApp agora (POST /me/whatsapp/confirm/request + POST /me/whatsapp/confirm) e, depois
+ * disso, seguir com o OTP de exclusão. Sem esse caminho o titular ficaria impedido de exercer
+ * o Art. 18, IV/VI sozinho — que foi o defeito encontrado em HML.
+ */
+export type DeletionProofReason = "NEEDS_WHATSAPP";
+
+/** Contrato do 409 de prova indisponível (compatível: mesmo status e mesmo `code` de antes). */
+export interface DeletionProofUnavailable {
+  code: "PROOF_UNAVAILABLE" | "WHATSAPP_NOT_CONFIRMED";
+  reason: DeletionProofReason;
+  needsWhatsapp: true;
+  confirmWord: string;
+}
 
 export interface DeletionChallenge {
   method: DeletionProofMethod;
@@ -293,12 +403,14 @@ interface DeletionAccountRow {
   whatsapp_phone_hash: string | null;
   whatsapp_phone_enc: string | null;
   whatsapp_phone_masked: string | null;
+  whatsapp_phone_verified_at: Date | string | null;
 }
 
 async function loadDeletionAccount(accountId: string, db: DbClient): Promise<DeletionAccountRow> {
   const res = await db.query<DeletionAccountRow>(
     `SELECT id, email, email_normalized, password_hash, auth_provider,
-            whatsapp_phone_hash, whatsapp_phone_enc, whatsapp_phone_masked
+            whatsapp_phone_hash, whatsapp_phone_enc, whatsapp_phone_masked,
+            whatsapp_phone_verified_at
      FROM client_accounts WHERE id = $1`,
     [accountId]
   );
@@ -307,12 +419,44 @@ async function loadDeletionAccount(accountId: string, db: DbClient): Promise<Del
   return acc;
 }
 
-/** Qual prova esta conta aceita? senha local ⇒ senha; senão ⇒ OTP no WhatsApp cadastrado. */
-export function proofMethodFor(acc: Pick<DeletionAccountRow, "password_hash" | "whatsapp_phone_hash">): DeletionProofMethod | null {
+/**
+ * Qual prova esta conta aceita? senha local ⇒ senha; senão ⇒ OTP no WhatsApp cadastrado.
+ *
+ * O número só serve como prova quando foi **confirmado por código** (`whatsapp_phone_verified_at`):
+ * o campo de perfil (`PUT /accounts/whatsapp`) grava o número sem verificar, então usá-lo como
+ * prova deixaria a exclusão — irreversível — apoiada em um número nunca comprovado do titular.
+ * Sem número verificado a conta cai em `NEEDS_WHATSAPP` e a UI conduz a confirmação (que grava
+ * `whatsapp_phone_verified_at`) antes de pedir a palavra de confirmação.
+ */
+export function proofMethodFor(
+  acc: Pick<DeletionAccountRow, "password_hash" | "whatsapp_phone_hash" | "whatsapp_phone_verified_at">
+): DeletionProofMethod | null {
   if (acc.password_hash) return "password";
-  if (acc.whatsapp_phone_hash) return "whatsapp_otp";
+  if (acc.whatsapp_phone_hash && acc.whatsapp_phone_verified_at) return "whatsapp_otp";
   return null;
 }
+
+/**
+ * 409 PROOF_UNAVAILABLE + `reason: "NEEDS_WHATSAPP"`: o `code` e o status do contrato NÃO
+ * mudaram (clientes antigos continuam entendendo o erro); o que se acrescenta é o campo que
+ * permite à UI abrir o caminho de confirmação do WhatsApp em vez de mandar o titular ao suporte.
+ */
+function proofUnavailable(
+  message: string,
+  code: DeletionProofUnavailable["code"] = "PROOF_UNAVAILABLE"
+): Error & { status: number } & DeletionProofUnavailable {
+  const e = err(409, code, message) as Error & { status: number } & DeletionProofUnavailable;
+  e.reason = "NEEDS_WHATSAPP";
+  e.needsWhatsapp = true;
+  e.confirmWord = CONFIRM_WORD;
+  return e;
+}
+
+const MSG_NEEDS_WHATSAPP =
+  "Sua conta não tem senha nem WhatsApp cadastrado (é o caso de contas criadas com Google ou " +
+  "Microsoft). Para excluir a conta você mesmo, confirme um WhatsApp agora: enviamos um código " +
+  "para o número que você informar e, depois de confirmado, o código de exclusão vai para esse " +
+  "mesmo número. Só se você não puder confirmar nenhum número, fale com o suporte do kikin.";
 
 export async function describeDeletionProof(
   accountId: string,
@@ -322,11 +466,7 @@ export async function describeDeletionProof(
   const acc = await loadDeletionAccount(accountId, db);
   const method = proofMethodFor(acc);
   if (!method) {
-    throw err(
-      409,
-      "PROOF_UNAVAILABLE",
-      "Sua conta não tem senha nem WhatsApp cadastrado, então não é possível confirmar sua identidade pelo portal. Fale com o suporte do kikin para excluir a conta."
-    );
+    throw proofUnavailable(MSG_NEEDS_WHATSAPP);
   }
 
   if (method === "password") {
@@ -337,10 +477,12 @@ export async function describeDeletionProof(
   // digitado na hora — isso não provaria identidade nenhuma).
   const phone = whatsappAuth.decryptAccountPhone(acc.whatsapp_phone_enc);
   if (!phone) {
-    throw err(
-      409,
-      "WHATSAPP_NOT_CONFIRMED",
-      "Não conseguimos enviar o código: confirme seu WhatsApp no perfil do portal antes de excluir a conta."
+    // Número cadastrado mas ilegível (cifra ausente/corrompida): a saída é a MESMA da conta sem
+    // número — confirmar um WhatsApp por OTP —, então a UI recebe o mesmo `reason`.
+    throw proofUnavailable(
+      "Não conseguimos usar o WhatsApp cadastrado na sua conta (o valor está incompleto). " +
+        "Confirme um WhatsApp agora, informando o número, para receber o código de exclusão nele.",
+      "WHATSAPP_NOT_CONFIRMED"
     );
   }
 
@@ -366,6 +508,95 @@ export async function describeDeletionProof(
 // =============================================================================
 // 3. EXCLUSÃO (POST /api/v1/accounts/me/delete)
 // =============================================================================
+
+// ------------------------------------------------- remoção das linhas (reutilizável)
+
+/**
+ * Apaga TODAS as linhas do portal que pertencem a esta conta e devolve quantas linhas saíram de
+ * cada tabela (`Record<tabela, contagem>`, sempre com as 7 chaves de `PORTAL_ACCOUNT_TABLES` —
+ * tabela sem linha sai com 0, nunca ausente).
+ *
+ * **Não abre transação**: recebe o `tx` de quem chama. É de propósito — a exclusão pedida pelo
+ * titular (Art. 18, VI) e a REAPLICAÇÃO depois de restaurar um backup (`scripts/
+ * apply-suppression-list.ts`) precisam remover exatamente o mesmo conjunto de linhas; se cada uma
+ * tivesse a sua própria lista, elas divergiriam e a supressão deixaria de ser confiável.
+ *
+ * Ordem: exatamente `DELETION_ORDER` (filhas antes da conta). `client_otp_codes` e
+ * `client_temp_signup` não têm `account_id` — são casadas pelo HASH do telefone, resolvido aqui
+ * dentro da transação (o da conta + o dos vínculos), nunca pelo número em claro (o portal não o
+ * guarda).
+ */
+export async function purgePortalAccountRows(
+  tx: DbClient,
+  accountId: string
+): Promise<Record<string, number>> {
+  // Telefone da conta lido DENTRO da transação: a lista de supressão não tem esse dado em mãos
+  // (só o id) e uma leitura pré-transação poderia enxergar um número que já mudou.
+  const accRes = await tx.query<{ whatsapp_phone_hash: string | null }>(
+    `SELECT whatsapp_phone_hash FROM client_accounts WHERE id = $1`,
+    [accountId]
+  );
+  const phoneHash = accRes.rows[0]?.whatsapp_phone_hash ?? null;
+
+  const linkHashes = await tx.query<{ phone_hash: string }>(
+    `SELECT DISTINCT phone_hash FROM account_establishment_links WHERE account_id = $1`,
+    [accountId]
+  );
+  const purgeHashes = new Set<string>();
+  for (const r of linkHashes.rows) if (r.phone_hash) purgeHashes.add(r.phone_hash);
+  if (phoneHash) purgeHashes.add(phoneHash);
+  const hashList = [...purgeHashes];
+
+  // Uma sentença por tabela; a ORDEM de execução vem de DELETION_ORDER (fonte única da verdade).
+  const statements: Record<PortalAccountTable, { sql: string; params: unknown[] }> = {
+    push_subscriptions: {
+      sql: `DELETE FROM push_subscriptions WHERE account_id = $1`,
+      params: [accountId],
+    },
+    client_email_tokens: {
+      sql: `DELETE FROM client_email_tokens WHERE account_id = $1`,
+      params: [accountId],
+    },
+    client_account_sessions: {
+      sql: `DELETE FROM client_account_sessions WHERE account_id = $1`,
+      params: [accountId],
+    },
+    account_establishment_links: {
+      sql: `DELETE FROM account_establishment_links WHERE account_id = $1`,
+      params: [accountId],
+    },
+    client_otp_codes: {
+      sql: `DELETE FROM client_otp_codes WHERE phone_hash = ANY($1::text[])`,
+      params: [hashList],
+    },
+    client_temp_signup: {
+      sql: `DELETE FROM client_temp_signup WHERE phone_hash = ANY($1::text[])`,
+      params: [hashList],
+    },
+    client_accounts: {
+      sql: `DELETE FROM client_accounts WHERE id = $1`,
+      params: [accountId],
+    },
+  };
+
+  const removed: Record<string, number> = {};
+  for (const table of DELETION_ORDER) {
+    const st = statements[table];
+    // Conta sem telefone (nem vínculo com hash): as duas tabelas por hash não têm o que casar.
+    // Sai 0 explicitamente — `WHERE phone_hash = ANY('{}')` já não casaria nada, mas o 0 aqui é
+    // intencional e legível: nada foi apagado porque nada pertencia à conta.
+    if (
+      (table === "client_otp_codes" || table === "client_temp_signup") &&
+      hashList.length === 0
+    ) {
+      removed[table] = 0;
+      continue;
+    }
+    const res = await tx.query(st.sql, st.params);
+    removed[table] = res.rowCount ?? 0;
+  }
+  return removed;
+}
 
 export interface DeleteAccountInput {
   confirm?: unknown;
@@ -395,11 +626,7 @@ export async function deleteAccount(
   const acc = await loadDeletionAccount(accountId, db);
   const method = proofMethodFor(acc);
   if (!method) {
-    throw err(
-      409,
-      "PROOF_UNAVAILABLE",
-      "Sua conta não tem senha nem WhatsApp cadastrado, então não é possível confirmar sua identidade pelo portal. Fale com o suporte do kikin para excluir a conta."
-    );
+    throw proofUnavailable(MSG_NEEDS_WHATSAPP);
   }
 
   // (b) prova de identidade — senha (bcrypt) antes da transação: não muda estado.
@@ -441,35 +668,9 @@ export async function deleteAccount(
       });
     }
 
-    // Telefones ligados à conta (o da conta + os dos vínculos): client_otp_codes e
-    // client_temp_signup não têm account_id, casam por hash de telefone.
-    const linkHashes = await tx.query<{ phone_hash: string }>(
-      `SELECT DISTINCT phone_hash FROM account_establishment_links WHERE account_id = $1`,
-      [accountId]
-    );
-    const purgeHashes = new Set<string>();
-    for (const r of linkHashes.rows) if (r.phone_hash) purgeHashes.add(r.phone_hash);
-    if (acc.whatsapp_phone_hash) purgeHashes.add(acc.whatsapp_phone_hash);
-    const hashList = [...purgeHashes];
-
-    const del = async (table: PortalAccountTable, sql: string, params: unknown[]) => {
-      const res = await tx.query(sql, params);
-      removed[table] = res.rowCount ?? 0;
-    };
-
-    // ---- ordem FK-segura (mesma de DELETION_ORDER)
-    await del("push_subscriptions", `DELETE FROM push_subscriptions WHERE account_id = $1`, [accountId]);
-    await del("client_email_tokens", `DELETE FROM client_email_tokens WHERE account_id = $1`, [accountId]);
-    await del("client_account_sessions", `DELETE FROM client_account_sessions WHERE account_id = $1`, [accountId]);
-    await del("account_establishment_links", `DELETE FROM account_establishment_links WHERE account_id = $1`, [accountId]);
-    if (hashList.length > 0) {
-      await del("client_otp_codes", `DELETE FROM client_otp_codes WHERE phone_hash = ANY($1::text[])`, [hashList]);
-      await del("client_temp_signup", `DELETE FROM client_temp_signup WHERE phone_hash = ANY($1::text[])`, [hashList]);
-    } else {
-      removed.client_otp_codes = 0;
-      removed.client_temp_signup = 0;
-    }
-    await del("client_accounts", `DELETE FROM client_accounts WHERE id = $1`, [accountId]);
+    // Remoção FK-segura das 7 tabelas do portal. Mesma função usada pela lista de supressão
+    // (reaplicação pós-backup): UMA lista de tabelas, uma ordem, nenhuma chance de divergirem.
+    Object.assign(removed, await purgePortalAccountRows(tx, accountId));
 
     // ---- auditoria (Art. 37): mesmos números que acabaram de ser apagados.
     const audit = await tx.query<{ id: string }>(
@@ -478,7 +679,7 @@ export async function deleteAccount(
        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
        RETURNING id`,
       [
-        hmac(accountId),
+        accountRefHash(accountId),
         hmac(acc.email_normalized || acc.email),
         acc.auth_provider,
         method,

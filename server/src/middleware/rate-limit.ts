@@ -85,6 +85,22 @@ export const lgpdDeleteLimiter = make({
   },
 });
 
+/**
+ * LGPD Art. 18 — confirmar/conferir o WhatsApp da conta logada (envia código por WhatsApp).
+ * Limite PRÓPRIO, por conta: quem entrou por Google/Microsoft precisa confirmar um número ANTES
+ * de pedir a exclusão; dividir o orçamento de `lgpdDeleteLimiter` faria o titular bater no limite
+ * justamente no último passo (o DELETE) e ficar sem conseguir excluir a própria conta.
+ */
+export const lgpdWhatsappConfirmLimiter = make({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: "Limite de confirmações de WhatsApp atingido. Aguarde 15 minutos.", code: "RATE_LIMITED" },
+  keyOf: (req) => {
+    const id = (req as any).account?.accountId;
+    return id ? `user:${id}` : `ip:${clientIp(req)}`;
+  },
+});
+
 export const perUserLimiter = make({
   windowMs: 60 * 1000,
   max: 120,

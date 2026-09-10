@@ -38,9 +38,22 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
-    public code: string
+    public code: string,
+    /**
+     * Corpo cru da resposta de erro. O gateway publica campos ADICIONAIS do contrato que a UI
+     * precisa para decidir o próximo passo — hoje, no 409 de exclusão, `reason:
+     * "NEEDS_WHATSAPP"` (conta sem senha e sem WhatsApp ⇒ confirmar um número por OTP),
+     * `needsWhatsapp` e `confirmWord`. Não é segredo: é o mesmo JSON da resposta.
+     */
+    public data: Record<string, any> = {}
   ) {
     super(message);
+  }
+
+  /** Campo extra do contrato de erro, sem espalhar `any` pela UI. */
+  reason(): string | undefined {
+    const value = this.data?.reason;
+    return typeof value === "string" ? value : undefined;
   }
 }
 
@@ -91,7 +104,7 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
   if (!res.ok) {
     const code = (data as any)?.code || "ERROR";
     const error = (data as any)?.error || "Ocorreu um erro inesperado.";
-    throw new ApiError(error, res.status, code);
+    throw new ApiError(error, res.status, code, (data as any) || {});
   }
   return data as T;
 }
@@ -117,7 +130,8 @@ async function requestBlob(path: string): Promise<{ blob: Blob; filename: string
     throw new ApiError(
       (data as any)?.error || "Não foi possível gerar o arquivo agora.",
       res.status,
-      (data as any)?.code || "ERROR"
+      (data as any)?.code || "ERROR",
+      (data as any) || {}
     );
   }
   const disposition = res.headers.get("Content-Disposition") || "";
@@ -268,20 +282,43 @@ export const api = {
     request<{ tokens: Tokens; account: PublicAccount; linked: number }>("/accounts/whatsapp/register", { method: "POST", body }),
 
   // ---- LGPD Art. 18 (direitos do titular)
-  /** Baixa o JSON com os dados do portal (Content-Disposition: attachment). */
+  /**
+   * Baixa o JSON com os dados do portal (Content-Disposition: attachment).
+   * O conteúdo segue `AccountExportPayload` — inclui `compartilhamento` (operadores),
+   * `parcial`/`falhas` e `conta.whatsappCompleto` (número do próprio titular).
+   */
   exportMyData: () => requestBlob("/accounts/me/export"),
   /**
    * Descobre QUAL prova a conta exige e, com sendCode !== false, já dispara o código
    * OTP no WhatsApp cadastrado (mesmo fluxo do login).
+   *
+   * Conta criada por Google/Microsoft (sem senha e sem WhatsApp) responde 409
+   * `PROOF_UNAVAILABLE` com `reason: "NEEDS_WHATSAPP"` no `ApiError.data`: aí a UI conduz o
+   * titular a `confirmWhatsappRequest` + `confirmWhatsapp` e só depois pede a palavra EXCLUIR.
    */
   deleteAccountRequest: (sendCode?: boolean) =>
     request<DeletionChallenge>("/accounts/me/delete/request", {
       method: "POST",
       body: sendCode === undefined ? {} : { sendCode },
     }),
+  /** Confirma o WhatsApp da conta logada (passo 1): envia o código para o número informado. */
+  confirmWhatsappRequest: (phone: string) =>
+    request<{ ok: true; masked: string; devCode?: string }>("/accounts/me/whatsapp/confirm/request", {
+      method: "POST",
+      body: { phone },
+    }),
+  /**
+   * Confirma o WhatsApp da conta logada (passo 2): confere o código e grava o número na conta.
+   * Depois disso o OTP de exclusão passa a ir para esse número.
+   */
+  confirmWhatsapp: (phone: string, code: string) =>
+    request<{ ok: true; masked: string; account: PublicAccount }>("/accounts/me/whatsapp/confirm", {
+      method: "POST",
+      body: { phone, code },
+    }),
   /** Exclui SOMENTE a conta do portal (prova + palavra EXCLUIR). Nada é alterado no salão. */
   deleteAccount: (body: { confirm: string; password?: string; otpCode?: string }) =>
-    request<{ deleted: true; removed: Record<string, number>; proofMethod: DeletionProofMethod }>(
+    request<{ deleted: true; removed: Record<string, number>; proofMethod: DeletionProofMethod; auditId: string | null; deletedAt: string }>(
       "/accounts/me/delete",
       { method: "POST", body }
     ),
@@ -424,6 +461,13 @@ export type WhatsappVerifyOutcome =
 
 export type DeletionProofMethod = "password" | "whatsapp_otp";
 
+/**
+ * Por que a conta não conseguiu oferecer prova de identidade.
+ * `NEEDS_WHATSAPP`: conta sem senha e sem WhatsApp (Google/Microsoft) — a UI deve oferecer
+ * confirmar um número agora e, feita a confirmação, seguir com o OTP de exclusão.
+ */
+export type DeletionProofReason = "NEEDS_WHATSAPP";
+
 export interface DeletionChallenge {
   /** Prova de identidade que a conta exige: senha local ou código no WhatsApp cadastrado. */
   method: DeletionProofMethod;
@@ -434,4 +478,47 @@ export interface DeletionChallenge {
   /** Só em desenvolvimento (WHATSAPP_DEV_RETURN_CODE): o código aparece para testes. */
   devCode?: string;
   expiresInMinutes?: number;
+}
+
+/** Operador/subprocessador que trata dados do portal (Art. 18, VII — lista única do gateway). */
+export interface ExportOperator {
+  nome: string;
+  finalidade: string;
+  pais: string;
+  baseLegal: "execucao_do_servico" | "consentimento" | "execucao_do_servico_e_consentimento";
+  transferenciaInternacional: "sim" | "nao" | "conforme_provedor";
+}
+
+/**
+ * Formato do JSON baixado em `exportMyData()` (o front não o renderiza hoje, mas o contrato é
+ * este): `parcial`/`falhas` avisam quando alguma leitura do Kikin falhou, `compartilhamento`
+ * cumpre o Art. 18, VII, `conta.whatsappCompleto` traz o número do PRÓPRIO titular decifrado e
+ * cada vínculo marca `telefoneCompletoIndisponivel` (lá o portal só tem máscara).
+ */
+export interface AccountExportPayload {
+  formatVersion: number;
+  generatedAt: string;
+  parcial: boolean;
+  falhas: string[];
+  conta: {
+    id: string;
+    nome: string;
+    email: string | null;
+    emailVerificadoEm: string | null;
+    provedorDeLogin: string;
+    whatsappMascarado: string | null;
+    whatsappCompleto: string | null;
+    whatsappVerificadoEm: string | null;
+    avatarUrl: string | null;
+    criadaEm: string | null;
+    atualizadaEm: string | null;
+  };
+  vinculos: Array<Record<string, unknown> & { telefoneMascarado: string | null; telefoneCompletoIndisponivel: true }>;
+  agendamentos: { futuros: Array<Record<string, unknown>>; historico: Array<Record<string, unknown>> };
+  consentimentos: Array<Record<string, unknown>>;
+  push: { dispositivos: Array<{ host: string; criadoEm: string | null }> };
+  seguranca: { sessoesAtivas: number; tokensDeEmailPendentes: number };
+  compartilhamento: { operadores: ExportOperator[]; nota: string };
+  notas: { telefoneCompleto: string; telefonesDeVinculo: string };
+  aviso: string;
 }
