@@ -1304,11 +1304,11 @@ describe("LGPD — export informa o compartilhamento (Art. 18, VII)", () => {
     const nomes = body.compartilhamento.operadores.map((o: any) => o.nome);
     expect(nomes).toEqual([
       "Meta Platforms (WhatsApp Business Cloud API)",
-      "Functional Software, Inc. (Sentry)",
       "Google LLC",
       "Microsoft Corporation",
       "Asaas Gestão de Pagamentos Ltda",
       "Cloudflare, Inc.",
+      "HostPapa/ColoCrossing (hospedagem da aplicação)",
       "Provedor de e-mail (SMTP configurado no ambiente)",
       "Provedor de Web Push do navegador (Google/Mozilla/Apple)",
     ]);
@@ -1318,7 +1318,7 @@ describe("LGPD — export informa o compartilhamento (Art. 18, VII)", () => {
       pais: "EUA",
       transferenciaInternacional: "sim",
     });
-    expect(body.compartilhamento.operadores[4]).toMatchObject({ pais: "Brasil", transferenciaInternacional: "nao" });
+    expect(body.compartilhamento.operadores[3]).toMatchObject({ pais: "Brasil", transferenciaInternacional: "nao" });
     expect(body.compartilhamento.operadores[6]).toMatchObject({ pais: "conforme provedor", transferenciaInternacional: "conforme_provedor" });
 
     // Art. 33: quais são transferência internacional + base legal, dito com todas as letras

@@ -53,13 +53,6 @@ export const OPERATORS: readonly OperatorInfo[] = [
     transferenciaInternacional: "sim",
   },
   {
-    nome: "Functional Software, Inc. (Sentry)",
-    finalidade: "monitoramento de erros",
-    pais: "EUA",
-    baseLegal: "execucao_do_servico",
-    transferenciaInternacional: "sim",
-  },
-  {
     nome: "Google LLC",
     finalidade: "login OAuth e Web Push (Chrome/FCM)",
     pais: "EUA",
@@ -83,6 +76,13 @@ export const OPERATORS: readonly OperatorInfo[] = [
   {
     nome: "Cloudflare, Inc.",
     finalidade: "DNS, proxy e proteção de borda",
+    pais: "EUA",
+    baseLegal: "execucao_do_servico",
+    transferenciaInternacional: "sim",
+  },
+  {
+    nome: "HostPapa/ColoCrossing (hospedagem da aplicação)",
+    finalidade: "hospedagem dos servidores, banco de dados e arquivos",
     pais: "EUA",
     baseLegal: "execucao_do_servico",
     transferenciaInternacional: "sim",

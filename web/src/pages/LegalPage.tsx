@@ -5,6 +5,77 @@ interface LegalPageProps {
 }
 
 /**
+ * Operadores/subprocessadores reais do portal (nome, finalidade, dados, país e link).
+ * Espelha `server/src/modules/lgpd/operators.ts` — a lista canônica da exportação LGPD.
+ */
+const PORTAL_OPERATORS = [
+  {
+    nome: "Meta Platforms (WhatsApp)",
+    finalidade: "Envio das mensagens de WhatsApp (confirmações, lembretes e códigos de acesso)",
+    dados: "Nome, telefone e conteúdo da mensagem",
+    pais: "EUA (transferência internacional)",
+    link: "https://www.facebook.com/privacy/policy/",
+    linkLabel: "facebook.com/privacy/policy",
+  },
+  {
+    nome: "Google LLC",
+    finalidade: "Login com Google e entrega de notificações push do navegador",
+    dados: "Nome, e-mail, identificador da conta e inscrição de push",
+    pais: "EUA (transferência internacional)",
+    link: "https://policies.google.com/privacy",
+    linkLabel: "policies.google.com/privacy",
+  },
+  {
+    nome: "Microsoft Corporation",
+    finalidade: "Login com Microsoft (Entra ID)",
+    dados: "Nome, e-mail e dados básicos do perfil",
+    pais: "EUA (transferência internacional)",
+    link: "https://privacy.microsoft.com/privacystatement",
+    linkLabel: "privacy.microsoft.com/privacystatement",
+  },
+  {
+    nome: "Asaas Gestão de Pagamentos Ltda",
+    finalidade: "Cobrança e emissão de nota fiscal dos planos dos estabelecimentos",
+    dados: "Nome/razão social, e-mail, CPF ou CNPJ, telefone e endereço (o cartão é informado diretamente na página hospedada do provedor)",
+    pais: "Brasil",
+    link: "https://www.asaas.com/politica-de-privacidade",
+    linkLabel: "asaas.com/politica-de-privacidade",
+  },
+  {
+    nome: "Cloudflare, Inc.",
+    finalidade: "DNS, proxy e proteção da borda",
+    dados: "Endereço IP e cabeçalhos HTTP",
+    pais: "EUA (transferência internacional)",
+    link: "https://www.cloudflare.com/privacypolicy/",
+    linkLabel: "cloudflare.com/privacypolicy",
+  },
+  {
+    nome: "HostPapa / ColoCrossing (hospedagem)",
+    finalidade: "Hospedagem da aplicação, do banco de dados e dos backups",
+    dados: "Todos os dados tratados pelo portal, em repouso",
+    pais: "EUA (transferência internacional)",
+    link: "https://www.hostpapa.com/privacy/",
+    linkLabel: "hostpapa.com/privacy",
+  },
+  {
+    nome: "Provedor de e-mail (SMTP) contratado",
+    finalidade: "Envio do link de confirmação de e-mail e da redefinição de senha",
+    dados: "Nome, e-mail e código/link de verificação",
+    pais: "Conforme o provedor",
+    link: "",
+    linkLabel: "conforme o provedor contratado",
+  },
+  {
+    nome: "Provedor de notificações push do seu navegador (Google, Mozilla ou Apple)",
+    finalidade: "Entrega das notificações que você mesmo ativa",
+    dados: "Inscrição de push e chaves do navegador",
+    pais: "Conforme o navegador",
+    link: "",
+    linkLabel: "conforme o navegador",
+  },
+] as const;
+
+/**
  * Termos de Uso e Política de Privacidade do portal do cliente.
  * Conteúdo inicial enxuto (MVP Fase 1) — o texto final deve ser revisado
  * juridicamente antes de produção.
@@ -70,16 +141,47 @@ export function LegalPage({ doc }: LegalPageProps) {
                   salão que você frequenta. <b>Não vendemos dados.</b> Para funcionar, o portal usa
                   operadores que tratam dados apenas para as finalidades abaixo:
                 </p>
-                <ul className="mt-2 list-disc space-y-1 pl-5">
-                  <li><b>Meta Platforms</b> — envio das mensagens de WhatsApp (confirmações, lembretes e códigos de acesso) — <i>EUA</i>.</li>
-                  <li><b>Sentry</b> — monitoramento de erros e desempenho da aplicação — <i>EUA</i>.</li>
-                  <li><b>Google</b> — login com Google e entrega de notificações push do navegador — <i>EUA</i>.</li>
-                  <li><b>Microsoft</b> — login com Microsoft — <i>EUA</i>.</li>
-                  <li><b>Asaas</b> — cobrança e emissão de nota fiscal dos planos dos estabelecimentos — <i>Brasil</i>.</li>
-                  <li><b>Cloudflare</b> — DNS, proxy e proteção da borda — <i>EUA</i>.</li>
-                  <li><b>Provedor de e-mail (SMTP) contratado</b> — envio do link de confirmação de e-mail e da redefinição de senha — <i>conforme o provedor</i>.</li>
-                  <li><b>Provedor de notificações push do seu navegador</b> (Google, Mozilla ou Apple, conforme o navegador) — entrega das notificações que você mesmo ativa — <i>conforme o navegador</i>.</li>
-                </ul>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-black/15">
+                        <th className="py-2 pr-3 align-top font-black uppercase tracking-tight text-black">Operador</th>
+                        <th className="py-2 pr-3 align-top font-black uppercase tracking-tight text-black">Finalidade</th>
+                        <th className="py-2 pr-3 align-top font-black uppercase tracking-tight text-black">Dados</th>
+                        <th className="py-2 pr-3 align-top font-black uppercase tracking-tight text-black">País</th>
+                        <th className="py-2 align-top font-black uppercase tracking-tight text-black">Política</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {PORTAL_OPERATORS.map((op) => (
+                        <tr key={op.nome} className="border-b border-black/10 align-top">
+                          <td className="py-2 pr-3 font-bold text-black">{op.nome}</td>
+                          <td className="py-2 pr-3">{op.finalidade}</td>
+                          <td className="py-2 pr-3">{op.dados}</td>
+                          <td className="py-2 pr-3">{op.pais}</td>
+                          <td className="py-2">
+                            {op.link ? (
+                              <a
+                                href={op.link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="break-all text-blue-600 underline"
+                              >
+                                {op.linkLabel}
+                              </a>
+                            ) : (
+                              op.linkLabel
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-3">
+                  O envio de mensagens por WhatsApp é operado em infraestrutura própria do kikin,
+                  conectada à rede do WhatsApp (Meta Platforms).
+                </p>
                 <p className="mt-2">
                   Os itens com país estrangeiro envolvem <b>transferência internacional</b> (Art. 33 da
                   LGPD), feita com base nas hipóteses legais aplicáveis (execução de contrato e
@@ -127,8 +229,97 @@ export function LegalPage({ doc }: LegalPageProps) {
                   confirmação e quantidades removidas), sem guardar seus dados pessoais em claro.
                 </p>
               </section>
+              <section>
+                <h2 className="text-base font-black uppercase tracking-tight text-black">6. Por quanto tempo guardamos</h2>
+                <p className="mt-2">
+                  Guardamos cada dado apenas pelo tempo necessário à finalidade ou ao cumprimento de
+                  uma obrigação legal:
+                </p>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-black/15">
+                        <th className="py-2 pr-3 align-top font-black uppercase tracking-tight text-black">Dado</th>
+                        <th className="py-2 align-top font-black uppercase tracking-tight text-black">Prazo de retenção</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b border-black/10 align-top">
+                        <td className="py-2 pr-3 font-bold text-black">Códigos de acesso (OTP)</td>
+                        <td className="py-2">10 minutos ou até o primeiro uso</td>
+                      </tr>
+                      <tr className="border-b border-black/10 align-top">
+                        <td className="py-2 pr-3 font-bold text-black">Cadastro temporário (antes da confirmação)</td>
+                        <td className="py-2">30 minutos</td>
+                      </tr>
+                      <tr className="border-b border-black/10 align-top">
+                        <td className="py-2 pr-3 font-bold text-black">Sessão de acesso e renovação</td>
+                        <td className="py-2">Sessão de 2 horas, renovável por até 30 dias (você pode encerrar antes)</td>
+                      </tr>
+                      <tr className="border-b border-black/10 align-top">
+                        <td className="py-2 pr-3 font-bold text-black">Links de confirmação de e-mail e redefinição de senha</td>
+                        <td className="py-2">De 1 a 24 horas</td>
+                      </tr>
+                      <tr className="border-b border-black/10 align-top">
+                        <td className="py-2 pr-3 font-bold text-black">Registros de conexão e acesso (IP, data e hora)</td>
+                        <td className="py-2">6 meses — Marco Civil da Internet, Art. 15</td>
+                      </tr>
+                      <tr className="border-b border-black/10 align-top">
+                        <td className="py-2 pr-3 font-bold text-black">Registro de notificações enviadas</td>
+                        <td className="py-2">180 dias</td>
+                      </tr>
+                      <tr className="border-b border-black/10 align-top">
+                        <td className="py-2 pr-3 font-bold text-black">Registro da exclusão da conta (auditoria)</td>
+                        <td className="py-2">Mantido apenas enquanto necessário para comprovar a eliminação e atender a obrigações legais</td>
+                      </tr>
+                      <tr className="border-b border-black/10 align-top">
+                        <td className="py-2 pr-3 font-bold text-black">Backup de conta excluída</td>
+                        <td className="py-2">Até 30 dias, com descarte registrado em log</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-2">
+                  O cadastro e o histórico de atendimento dentro de cada estabelecimento seguem a
+                  política do próprio estabelecimento, que é o controlador desses dados.
+                </p>
+              </section>
+              <section>
+                <h2 className="text-base font-black uppercase tracking-tight text-black">7. Segurança</h2>
+                <p className="mt-2">
+                  Todo o tráfego entre o seu dispositivo e o portal é protegido por{" "}
+                  <b>criptografia em trânsito (HTTPS/TLS)</b>. Em repouso, aplicamos proteção
+                  criptográfica a campos sensíveis — como telefone e documento, guardados de forma
+                  mascarada e com hash irreversível — e o acesso aos dados é restrito por autenticação.
+                  A criptografia de disco da infraestrutura é uma medida em avaliação no nosso roadmap
+                  de segurança, ainda não implantada, sem prazo prometido. Os dados de cartão de
+                  pagamento são informados e processados diretamente pelo provedor de pagamentos
+                  (Asaas, certificado PCI-DSS), em página de checkout hospedada do provedor: o kikin
+                  não os coleta nem armazena. Se o provedor enviar, no payload do webhook, dados de
+                  cartão mascarados, eles não são armazenados nem registrados em log.
+                </p>
+              </section>
+              <section>
+                <h2 className="text-base font-black uppercase tracking-tight text-black">8. Falar com o encarregado (DPO)</h2>
+                <p className="mt-2">
+                  Para exercer qualquer um dos seus direitos (Art. 18 da LGPD) ou tirar dúvidas sobre
+                  o tratamento dos seus dados, fale com o nosso Encarregado de Proteção de Dados:{" "}
+                  <a href="mailto:dpo@kikin.com.br" className="text-blue-600 underline">
+                    dpo@kikin.com.br
+                  </a>
+                  . Você também pode usar o e-mail{" "}
+                  <a href="mailto:privacidade@kikin.com.br" className="text-blue-600 underline">
+                    privacidade@kikin.com.br
+                  </a>
+                  .
+                </p>
+                <p className="mt-2 text-xs italic text-black/40">
+                  PLACEHOLDER — canal provisório, a confirmar pelo encarregado antes da publicação oficial.
+                </p>
+              </section>
               <p className="pt-2 text-xs text-black/40">
-                Versão 2026-09-10 (MVP). Documento final em revisão jurídica.
+                Última atualização: 10 de setembro de 2026 — Versão 2026-09-10 (MVP). Documento final em
+                revisão jurídica.
               </p>
             </>
           ) : (
