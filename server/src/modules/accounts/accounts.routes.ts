@@ -9,6 +9,7 @@ import {
 } from "../../middleware/rate-limit.js";
 import * as accounts from "./accounts.service.js";
 import * as social from "./social.service.js";
+import * as links from "../links/links.service.js";
 import * as whatsappAuth from "../../services/whatsapp/whatsapp-auth.service.js";
 
 const router = Router();
@@ -23,6 +24,11 @@ const signupSchema = z.object({
   password: z.string().min(8, "A senha deve ter no mínimo 8 caracteres"),
   fullName: z.string().min(2, "Informe seu nome"),
   consent: z.boolean().refine((v) => v === true, "Consentimento obrigatório"),
+  // Convite do estabelecimento: cadastro vindo do link `/cadastro?ref=<slug>` já sai
+  // vinculado ao salão (o WhatsApp é a identidade do vínculo — ADR-001).
+  salonRef: z.string().min(1).max(200).optional(),
+  phone: z.string().min(8, "Informe seu WhatsApp com DDD").max(20).optional(),
+  whatsappOptIn: z.boolean().optional(),
 });
 
 const loginSchema = z.object({
@@ -43,7 +49,32 @@ router.post("/signup", signupLimiter, async (req, res) => {
       return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
     }
     const result = await accounts.signup(parsed.data);
-    return res.status(201).json(result);
+
+    // Convite por link: grava o vínculo COMPLETO já no cadastro (o salão aparece no
+    // painel sem depender de um agendamento). Best-effort: uma falha aqui (ex.: telefone
+    // já vinculado a outra conta) NÃO derruba o cadastro — a UI mostra o motivo e o
+    // cliente pode tentar de novo em POST /links/invite.
+    let invite: { linked: boolean; salonName?: string; code?: string; error?: string } | null = null;
+    if (parsed.data.salonRef && parsed.data.phone) {
+      try {
+        const link = await links.linkInvitedSalon({
+          accountId: result.accountId,
+          salonRef: parsed.data.salonRef,
+          phone: parsed.data.phone,
+          name: parsed.data.fullName,
+          whatsappOptIn: parsed.data.whatsappOptIn,
+        });
+        invite = { linked: true, ...(link?.salonName ? { salonName: link.salonName } : {}) };
+      } catch (err: any) {
+        invite = {
+          linked: false,
+          code: err.code || "INVITE_FAILED",
+          error: err.message || "Não foi possível vincular o estabelecimento agora.",
+        };
+      }
+    }
+
+    return res.status(201).json({ ...result, invite });
   } catch (err: any) {
     return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
   }
@@ -111,6 +142,11 @@ const socialSetupSchema = z.object({
   tempToken: z.string().min(10),
   fullName: z.string().min(2, "Informe seu nome"),
   consent: z.boolean().refine((v) => v === true, "Consentimento obrigatório"),
+  // Convite do estabelecimento: quem se cadastra com Google/Microsoft pelo link também
+  // informa o WhatsApp aqui e já sai vinculado ao salão.
+  salonRef: z.string().min(1).max(200).optional(),
+  phone: z.string().min(8, "Informe seu WhatsApp com DDD").max(20).optional(),
+  whatsappOptIn: z.boolean().optional(),
 });
 
 // POST /api/v1/accounts/google — fluxo OAuth Google (mesmo padrão do Kikin: code flow)
@@ -163,7 +199,30 @@ router.post("/social/complete", signupLimiter, async (req, res) => {
       ip: clientIpOf(req),
       userAgent: req.headers["user-agent"] || null,
     });
-    return res.status(201).json(result);
+
+    // Convite por link (Google/Microsoft): mesmo best-effort do /signup — o vínculo com o
+    // estabelecimento do link é gravado aqui, então o salão já entra no painel.
+    let invite: { linked: boolean; salonName?: string; code?: string; error?: string } | null = null;
+    if (parsed.data.salonRef && parsed.data.phone) {
+      try {
+        const link = await links.linkInvitedSalon({
+          accountId: result.accountId,
+          salonRef: parsed.data.salonRef,
+          phone: parsed.data.phone,
+          name: parsed.data.fullName,
+          whatsappOptIn: parsed.data.whatsappOptIn,
+        });
+        invite = { linked: true, ...(link?.salonName ? { salonName: link.salonName } : {}) };
+      } catch (err: any) {
+        invite = {
+          linked: false,
+          code: err.code || "INVITE_FAILED",
+          error: err.message || "Não foi possível vincular o estabelecimento agora.",
+        };
+      }
+    }
+
+    return res.status(201).json({ ...result, invite });
   } catch (err: any) {
     return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
   }

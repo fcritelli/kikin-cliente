@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -5,10 +6,20 @@ import { useAuth } from "@/contexts/AuthContext";
 
 /**
  * Página do kikin-cliente (versão curta): nav + hero + rodapé.
+ * Após excluir a conta (LGPD) o portal volta para cá com ?conta=excluida e mostra o aviso.
  */
 export function Home() {
   const navigate = useNavigate();
   const { account } = useAuth();
+  const [deletedNotice, setDeletedNotice] = useState(() => {
+    try {
+      if (new URLSearchParams(window.location.search).get("conta") !== "excluida") return false;
+      window.history.replaceState({}, "", "/"); // aviso não reaparece ao recarregar
+      return true;
+    } catch {
+      return false;
+    }
+  });
   const go = (path: string) => () => navigate(path);
   const ctaHref = account ? "/conta" : "/cadastro";
   const ctaLabel = account ? "Ir para minha conta" : "Criar minha conta";
@@ -45,6 +56,22 @@ export function Home() {
         <div className="pointer-events-none absolute -top-40 right-[-10%] h-[40rem] w-[40rem] rounded-full bg-blue-200/40 blur-3xl" />
         <div className="pointer-events-none absolute bottom-[-20%] left-[-8%] h-[34rem] w-[34rem] rounded-full bg-blue-100/60 blur-3xl" />
         <div className="relative z-10 max-w-6xl text-center">
+          {deletedNotice && (
+            <div className="mx-auto mb-8 flex max-w-2xl flex-wrap items-start justify-between gap-3 rounded-2xl border border-green-600/30 bg-green-50 px-5 py-4 text-left">
+              <p className="text-sm leading-relaxed text-green-900">
+                <b>Sua conta da área do cliente foi excluída.</b> Seus cadastros e agendamentos nos
+                estabelecimentos continuam com eles — se quiser removê-los no salão, fale direto com o
+                estabelecimento. Se mudar de ideia, é só criar uma conta de novo.
+              </p>
+              <button
+                type="button"
+                onClick={() => setDeletedNotice(false)}
+                className="text-xs font-bold uppercase tracking-wider text-green-800 hover:underline cursor-pointer"
+              >
+                fechar
+              </button>
+            </div>
+          )}
           <span className="inline-flex items-center gap-2 rounded-full border border-blue-600/30 bg-blue-600/10 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.25em] text-blue-700">
             <Sparkles className="h-3 w-3" /> Novo portal do cliente
           </span>

@@ -151,6 +151,19 @@ export class KikinPortalClient {
     });
   }
 
+  /**
+   * Acha-ou-cria o client do estabelecimento pelo telefone, SEM agendar nada.
+   * Usado no convite por link (o vínculo nasce no cadastro, não no agendamento).
+   */
+  ensureClient(input: { salonId: string; phone: string; name?: string | null }) {
+    return this.request({
+      method: "POST",
+      path: "/clients/ensure",
+      body: { salonId: input.salonId, phone: input.phone, name: input.name || null },
+      scope: { salonIds: [input.salonId] },
+    });
+  }
+
   /** Metadados dos estabelecimentos (id/nome) — usados para exibir nomes nos vínculos. */
   listSalons() {
     return this.request({

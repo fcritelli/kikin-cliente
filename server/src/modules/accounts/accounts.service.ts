@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import { query, withTransaction } from "../../db.js";
 import { config } from "../../config.js";
 import { hashPhoneBR, maskPhoneBR, normalizePhoneBR } from "../../utils/phone.js";
+import { encryptPhone } from "../../services/whatsapp/whatsapp.service.js";
 
 export interface SessionTokens {
   accessToken: string;
@@ -275,16 +276,19 @@ export async function updateProfile(accountId: string, fullName: string): Promis
   return account;
 }
 
-/** Define o WhatsApp único da conta (contato/lembretes). LGPD: só hash + máscara. */
+/** Define o WhatsApp único da conta (contato/lembretes). LGPD: só hash + máscara + cifra. */
 export async function updateWhatsapp(accountId: string, phone: string): Promise<PublicAccount> {
   const normalized = normalizePhoneBR(phone);
   if (!normalized) throw err(400, "INVALID_PHONE", "Informe um número de WhatsApp válido com DDD.");
   const hash = hashPhoneBR(normalized, config.KIKIN_CLIENT_PORTAL_SECRET)!;
   const masked = maskPhoneBR(normalized)!;
+  // O valor cifrado (AES-256-GCM) é gravado junto: é o que permite enviar mensagens depois
+  // (ex.: o código OTP de exclusão de conta — LGPD Art. 18) sem guardar o número em claro.
   await query(
-    `UPDATE client_accounts SET whatsapp_phone_hash = $1, whatsapp_phone_masked = $2, whatsapp_updated_at = now(), updated_at = now()
-     WHERE id = $3`,
-    [hash, masked, accountId]
+    `UPDATE client_accounts SET whatsapp_phone_hash = $1, whatsapp_phone_masked = $2,
+            whatsapp_phone_enc = $3, whatsapp_updated_at = now(), updated_at = now()
+     WHERE id = $4`,
+    [hash, masked, encryptPhone(normalized), accountId]
   );
   const account = await getAccount(accountId);
   if (!account) throw err(404, "NOT_FOUND", "Conta não encontrada.");

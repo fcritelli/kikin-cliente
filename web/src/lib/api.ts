@@ -96,14 +96,70 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
   return data as T;
 }
 
+// ---------------------------------------------------------------- download
+
+/**
+ * GET autenticado que devolve ARQUIVO (não JSON): usado pela exportação LGPD.
+ * Respeita o Content-Disposition do gateway para nomear o download.
+ */
+async function requestBlob(path: string): Promise<{ blob: Blob; filename: string }> {
+  const headers: Record<string, string> = {};
+  const token = getAccessToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { method: "GET", headers });
+  } catch {
+    throw new ApiError("Não foi possível falar com o servidor. Verifique sua conexão.", 0, "NETWORK_ERROR");
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(
+      (data as any)?.error || "Não foi possível gerar o arquivo agora.",
+      res.status,
+      (data as any)?.code || "ERROR"
+    );
+  }
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = /filename="?([^";]+)"?/.exec(disposition);
+  // Em outra origem o header só é legível se o gateway expuser Content-Disposition
+  // (Access-Control-Expose-Headers): o fallback mantém o mesmo padrão de nome.
+  const fallback = `meus-dados-kikin-${new Date().toISOString().slice(0, 10)}.json`;
+  return { blob: await res.blob(), filename: (match?.[1] || fallback).trim() };
+}
+
+/** Salva um Blob como arquivo baixado no navegador. */
+export function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
 // ---------------------------------------------------------------- api
 
 export const api = {
-  signup: (body: { email: string; password: string; fullName: string; consent: boolean }) =>
-    request<{ accountId: string; email: string; requiresVerification: boolean; verificationToken?: string }>(
-      "/accounts/signup",
-      { method: "POST", body }
-    ),
+  signup: (body: {
+    email: string;
+    password: string;
+    fullName: string;
+    consent: boolean;
+    /** Convite do estabelecimento: cadastro já sai vinculado ao salão do link. */
+    salonRef?: string;
+    phone?: string;
+    whatsappOptIn?: boolean;
+  }) =>
+    request<{
+      accountId: string;
+      email: string;
+      requiresVerification: boolean;
+      verificationToken?: string;
+      invite?: { linked: boolean; salonName?: string; code?: string; error?: string } | null;
+    }>("/accounts/signup", { method: "POST", body }),
 
   verifyEmail: (token: string) => request<{ ok: true }>("/accounts/verify-email", { method: "POST", body: { token } }),
 
@@ -123,8 +179,21 @@ export const api = {
   social: (provider: SocialProvider, body: { code: string; redirectUri?: string }) =>
     request<SocialOutcome>(`/accounts/${provider}`, { method: "POST", body, auth: false }),
 
-  completeSocial: (body: { tempToken: string; fullName: string; consent: boolean }) =>
-    request<{ tokens: Tokens; accountId: string; account: PublicAccount }>("/accounts/social/complete", {
+  completeSocial: (body: {
+    tempToken: string;
+    fullName: string;
+    consent: boolean;
+    /** Convite do estabelecimento: cadastro social também já sai vinculado ao salão. */
+    salonRef?: string;
+    phone?: string;
+    whatsappOptIn?: boolean;
+  }) =>
+    request<{
+      tokens: Tokens;
+      accountId: string;
+      account: PublicAccount;
+      invite?: { linked: boolean; salonName?: string; code?: string; error?: string } | null;
+    }>("/accounts/social/complete", {
       method: "POST",
       body,
       auth: false,
@@ -144,6 +213,9 @@ export const api = {
     request<{ link: EstablishmentLink }>("/links/confirm", { method: "POST", body }),
   autoLink: (body: { salonId: string; phone: string; whatsappOptIn?: boolean }) =>
     request<{ link: EstablishmentLink | null }>("/links/auto", { method: "POST", body }),
+  /** Vínculo pelo link do estabelecimento (slug ou id): cria o vínculo completo na conta. */
+  linkInvite: (body: { salonRef: string; phone: string; name?: string; whatsappOptIn?: boolean }) =>
+    request<{ success: boolean; linked: boolean; link: EstablishmentLink }>("/links/invite", { method: "POST", body }),
   myAppointments: () => request<{ appointments: FutureAppointment[] }>("/links/me/appointments"),
   myAppointmentsHistory: () => request<{ appointments: FutureAppointment[] }>("/links/me/appointments/history"),
   setWhatsappOptin: (body: { salonId: string; optin: boolean }) =>
@@ -194,6 +266,25 @@ export const api = {
     request<WhatsappVerifyOutcome>("/accounts/whatsapp/verify", { method: "POST", body: { phone, code } }),
   whatsappRegister: (body: { tempToken: string; fullName: string; consent: boolean; email?: string | null }) =>
     request<{ tokens: Tokens; account: PublicAccount; linked: number }>("/accounts/whatsapp/register", { method: "POST", body }),
+
+  // ---- LGPD Art. 18 (direitos do titular)
+  /** Baixa o JSON com os dados do portal (Content-Disposition: attachment). */
+  exportMyData: () => requestBlob("/accounts/me/export"),
+  /**
+   * Descobre QUAL prova a conta exige e, com sendCode !== false, já dispara o código
+   * OTP no WhatsApp cadastrado (mesmo fluxo do login).
+   */
+  deleteAccountRequest: (sendCode?: boolean) =>
+    request<DeletionChallenge>("/accounts/me/delete/request", {
+      method: "POST",
+      body: sendCode === undefined ? {} : { sendCode },
+    }),
+  /** Exclui SOMENTE a conta do portal (prova + palavra EXCLUIR). Nada é alterado no salão. */
+  deleteAccount: (body: { confirm: string; password?: string; otpCode?: string }) =>
+    request<{ deleted: true; removed: Record<string, number>; proofMethod: DeletionProofMethod }>(
+      "/accounts/me/delete",
+      { method: "POST", body }
+    ),
 
 };
 
@@ -328,3 +419,19 @@ export function resolveOAuthCallbackProvider(returnedState: string | null): Soci
 export type WhatsappVerifyOutcome =
   | { status: "LOGIN"; tokens: Tokens; account: PublicAccount }
   | { status: "NEED_REGISTER"; tempToken: string; masked: string };
+
+// ---------------------------------------------------------------- LGPD (Art. 18)
+
+export type DeletionProofMethod = "password" | "whatsapp_otp";
+
+export interface DeletionChallenge {
+  /** Prova de identidade que a conta exige: senha local ou código no WhatsApp cadastrado. */
+  method: DeletionProofMethod;
+  /** Palavra que o titular precisa digitar para confirmar (EXCLUIR). */
+  confirmWord: string;
+  whatsappMask?: string | null;
+  codeSent?: boolean;
+  /** Só em desenvolvimento (WHATSAPP_DEV_RETURN_CODE): o código aparece para testes. */
+  devCode?: string;
+  expiresInMinutes?: number;
+}

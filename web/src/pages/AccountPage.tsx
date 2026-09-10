@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { DateCalendar } from "@/components/ui/DateCalendar";
 import { subscribeRealtime } from "@/lib/realtime";
 import { PushNotificationsCard } from "@/components/PushNotificationsCard";
+import { MyDataCard } from "@/components/MyDataCard";
 
 type Tab = "dashboard" | "consultas" | "estabelecimentos" | "perfil";
 
@@ -604,16 +605,14 @@ export function AccountPage() {
 
                 <PushNotificationsCard />
 
+                <MyDataCard linkedSalons={linkedMetas.map((s) => ({ id: s.id, name: s.name, phone: s.phone }))} />
+
                 <section className="rounded-2xl border border-black/10 bg-white p-5">
                   <p className="text-xs font-bold uppercase tracking-[0.2em] text-black/40">Opções da área do cliente</p>
                   <ul className="mt-2 grid gap-1 text-sm">
                     <li className="flex items-center justify-between py-1.5">
                       <span>Notificações por WhatsApp por estabelecimento</span>
                       <button type="button" onClick={() => setTab("estabelecimentos")} className="text-xs font-bold text-blue-600 hover:underline">Gerenciar</button>
-                    </li>
-                    <li className="flex items-center justify-between py-1.5">
-                      <span>Meus dados (LGPD)</span>
-                      <span className="text-xs text-black/40">em breve</span>
                     </li>
                     <li className="flex items-center justify-between py-1.5">
                       <Link to="/privacidade" className="text-blue-600 text-xs font-bold hover:underline">Política de Privacidade</Link>

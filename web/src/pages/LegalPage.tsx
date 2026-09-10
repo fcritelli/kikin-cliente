@@ -61,8 +61,43 @@ export function LegalPage({ doc }: LegalPageProps) {
                   salão que você frequenta. Não vendemos dados.
                 </p>
               </section>
+              <section>
+                <h2 className="text-base font-black uppercase tracking-tight text-black">4. Exportar meus dados</h2>
+                <p className="mt-2">
+                  Na sua área do cliente (<b>Perfil → Meus dados (LGPD)</b>) você baixa, a qualquer
+                  momento e sem pedir autorização a ninguém, um arquivo <b>JSON</b> com tudo o que o
+                  portal guarda sobre você: dados da conta (nome, e-mail, WhatsApp mascarado), seus
+                  vínculos com os estabelecimentos, os agendamentos que o portal consegue ler, seus
+                  consentimentos e os dispositivos que recebem notificações.
+                </p>
+                <p className="mt-2">
+                  O arquivo não inclui senha, códigos ou tokens de acesso — nada que permita entrar
+                  na sua conta.
+                </p>
+              </section>
+              <section>
+                <h2 className="text-base font-black uppercase tracking-tight text-black">5. Excluir minha conta</h2>
+                <p className="mt-2">
+                  Também na área do cliente você exclui sua conta quando quiser. Para sua segurança,
+                  pedimos uma prova de identidade — <b>sua senha</b> ou um <b>código enviado por
+                  WhatsApp</b> no número cadastrado — e que você digite <b>EXCLUIR</b> para confirmar.
+                </p>
+                <p className="mt-2">
+                  <b>O que é apagado:</b> a sua conta do portal, seus vínculos e consentimentos com os
+                  estabelecimentos, suas sessões (você sai de todos os aparelhos) e as inscrições de
+                  notificação no seu navegador.
+                </p>
+                <p className="mt-2">
+                  <b>O que permanece:</b> o seu cadastro e os seus agendamentos dentro de cada salão,
+                  barbearia ou clínica são dados do próprio estabelecimento e <b>não</b> são alterados
+                  pela exclusão da conta no portal. Se você quiser que o estabelecimento remova ou
+                  corrija esses dados, fale diretamente com ele — o contato aparece na própria tela
+                  de exclusão. A exclusão fica registrada de forma auditável (data, forma de
+                  confirmação e quantidades removidas), sem guardar seus dados pessoais em claro.
+                </p>
+              </section>
               <p className="pt-2 text-xs text-black/40">
-                Versão 2026-09-04 (MVP). Documento final em revisão jurídica.
+                Versão 2026-09-10 (MVP). Documento final em revisão jurídica.
               </p>
             </>
           ) : (

@@ -23,6 +23,14 @@ const autoLinkSchema = z.object({
   whatsappOptIn: z.boolean().optional(),
 });
 
+// Convite do estabelecimento (link `/e/<slug>` ou `/cadastro?ref=<slug>`): aceita slug ou id.
+const inviteSchema = z.object({
+  salonRef: z.string().min(1, "Link do estabelecimento inválido").max(200),
+  phone: z.string().min(8, "Informe seu WhatsApp com DDD").max(20),
+  name: z.string().min(2, "Informe seu nome").max(120).optional(),
+  whatsappOptIn: z.boolean().optional(),
+});
+
 const cancelSchema = z.object({
   salonId: z.string().uuid("Estabelecimento inválido"),
   appointmentId: z.string().uuid("Agendamento inválido"),
@@ -132,6 +140,23 @@ router.post("/me/appointments/reschedule", requireAuth, perUserLimiter, async (r
       error: err.message,
       ...(err.detail ? { detail: err.detail } : {}),
     });
+  }
+});
+
+// POST /api/v1/links/invite — vínculo pelo link do estabelecimento (cadastro/login)
+// O cliente informa o WhatsApp: o Kikin acha-ou-cria o client do salão e a conta já
+// sai com o estabelecimento no painel, SEM depender de um agendamento.
+router.post("/invite", requireAuth, perUserLimiter, async (req, res) => {
+  try {
+    const parsed = inviteSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ code: "VALIDATION_ERROR", issues: parsed.error.flatten() });
+    }
+    const accountId = (req as any).account.accountId;
+    const link = await links.linkInvitedSalon({ accountId, ...parsed.data });
+    return res.status(201).json({ success: true, linked: true, link });
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ code: err.code || "INTERNAL", error: err.message });
   }
 });
 

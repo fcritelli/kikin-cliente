@@ -86,6 +86,56 @@ export async function searchCandidates(input: { phone: string }): Promise<Client
   }));
 }
 
+/** Resolve o estabelecimento pelo slug (link do salão) ou pelo id. */
+async function resolveSalon(ref: string): Promise<SalonInfo> {
+  const clean = String(ref || "").trim();
+  if (!clean) throw err(400, "SALON_REF_REQUIRED", "Link do estabelecimento inválido.");
+  const salons = await listSalons();
+  const salon = salons.find((s) => s.slug === clean) || salons.find((s) => s.id === clean);
+  if (!salon) throw err(404, "SALON_NOT_FOUND", "Estabelecimento não encontrado.");
+  return salon;
+}
+
+/**
+ * Convite do estabelecimento (link `/e/<slug>` ou `/cadastro?ref=<slug>`): garante o
+ * client no Kikin para aquele salão (acha pelo telefone ou CRIA) e grava o vínculo
+ * COMPLETO da conta — o salão aparece no painel já no cadastro, sem depender de um
+ * agendamento. Idempotente: 1 vínculo por (conta, salão); dedupe de telefone entre
+ * contas é o mesmo do confirmLink (409 PHONE_LINKED_TO_ANOTHER_ACCOUNT).
+ */
+export async function linkInvitedSalon(input: {
+  accountId: string;
+  salonRef: string;
+  phone: string;
+  name?: string | null;
+  whatsappOptIn?: boolean;
+}): Promise<EstablishmentLink> {
+  const normalized = normalizePhoneBR(input.phone);
+  if (!normalized) throw err(400, "INVALID_PHONE", "Informe um WhatsApp com DDD válido.");
+  const salon = await resolveSalon(input.salonRef);
+  const ensured = await newKikin().ensureClient({
+    salonId: salon.id,
+    phone: normalized,
+    name: input.name || null,
+  });
+  const clientId = String(ensured?.clientId || "");
+  if (!clientId) {
+    throw err(502, "KIKIN_NO_CLIENT", "Não foi possível confirmar seu cadastro no estabelecimento.");
+  }
+  const link = await linkByKnownClient({
+    accountId: input.accountId,
+    salonId: salon.id,
+    kikinClientId: clientId,
+    clientName: input.name?.trim() || undefined,
+    phone: normalized,
+    whatsappOptIn: input.whatsappOptIn,
+  });
+  if (!link) {
+    throw err(502, "LINK_NOT_CREATED", "Não foi possível gravar o vínculo com o estabelecimento.");
+  }
+  return { ...link, salonName: link.salonName || salon.name };
+}
+
 async function getLinkRow(id: string) {
   const res = await query<EstablishmentLink>(
     `SELECT id, salon_id AS "salonId", kikin_client_id AS "kikinClientId",

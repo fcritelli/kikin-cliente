@@ -17,41 +17,130 @@ import { confirmLink, searchCandidates } from "../../modules/links/links.service
 
 const MAX_ATTEMPTS = 5;
 
+/**
+ * Propósito do OTP. A tabela `client_otp_codes.purpose` já existia (texto livre, default
+ * 'whatsapp_signin'); 'account_deletion' (LGPD Art. 18) usa o MESMO mecanismo/armazenamento,
+ * só com escopo próprio — retrocompatível: quem não passa purpose continua no login.
+ */
+export type WhatsappOtpPurpose = "whatsapp_signin" | "account_deletion";
+
+/** Recorte de banco aceito pelas funções de OTP (permite rodar dentro de uma transação). */
+export interface OtpDb {
+  query<T = any>(text: string, params?: unknown[]): Promise<{ rows: T[]; rowCount?: number | null }>;
+}
+
+const defaultDb: OtpDb = {
+  query: (text, params) => query(text, params) as unknown as Promise<{ rows: any[]; rowCount: number | null }>,
+};
+
+const OTP_MESSAGES: Record<WhatsappOtpPurpose, (code: string) => string> = {
+  whatsapp_signin: (code) => `Seu código do kikin cliente é ${code}. Ele expira em 10 minutos.`,
+  account_deletion: (code) =>
+    `Código para EXCLUIR sua conta do kikin cliente: ${code}. Ele expira em 10 minutos. Se não foi você, ignore esta mensagem — sua conta continua ativa.`,
+};
+
 function generateCode(): string {
   return String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
-async function latestOtp(phoneHash: string) {
-  const res = await query<{ id: string; code_hash: string; attempts: number }>(
+function codeHashOf(code: string): string {
+  return crypto.createHash("sha256").update(String(code || "")).digest("hex");
+}
+
+async function latestOtp(phoneHash: string, purpose: WhatsappOtpPurpose = "whatsapp_signin", db: OtpDb = defaultDb) {
+  const res = await db.query<{ id: string; code_hash: string; attempts: number }>(
     `SELECT id, code_hash, attempts FROM client_otp_codes
-     WHERE phone_hash = $1 AND purpose = 'whatsapp_signin' AND used_at IS NULL AND expires_at > now()
+     WHERE phone_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > now()
      ORDER BY created_at DESC LIMIT 1`,
-    [phoneHash]
+    [phoneHash, purpose]
   );
   return res.rows[0] || null;
 }
 
-/** Envia o código OTP por WhatsApp (10 min). Em dev (sem provedor) retorna o código. */
-export async function requestWhatsappOtp(input: { phone: string }): Promise<{ ok: true; masked: string; devCode?: string }> {
+/**
+ * Envia o código OTP por WhatsApp (10 min). Em dev (sem provedor) retorna o código.
+ * `purpose` é opcional e default 'whatsapp_signin' — cadastro/login não mudam.
+ */
+export async function requestWhatsappOtp(input: {
+  phone: string;
+  purpose?: WhatsappOtpPurpose;
+}): Promise<{ ok: true; masked: string; devCode?: string }> {
+  const purpose: WhatsappOtpPurpose = input.purpose || "whatsapp_signin";
   const normalized = normalizePhoneBR(input.phone);
   if (!normalized) throw err(400, "INVALID_PHONE", "Informe um WhatsApp válido com DDD.");
   const phoneHash = hashPhoneBR(normalized, config.KIKIN_CLIENT_PORTAL_SECRET)!;
   const masked = maskPhoneBR(normalized)!;
 
   const code = generateCode();
-  const codeHash = crypto.createHash("sha256").update(code).digest("hex");
-  await query(`UPDATE client_otp_codes SET used_at = now() WHERE phone_hash = $1 AND used_at IS NULL`, [phoneHash]);
+  const codeHash = codeHashOf(code);
+  // Invalida só os códigos pendentes do MESMO propósito (um código de exclusão não derruba
+  // um login em andamento, e vice-versa).
+  await query(`UPDATE client_otp_codes SET used_at = now() WHERE phone_hash = $1 AND purpose = $2 AND used_at IS NULL`, [
+    phoneHash,
+    purpose,
+  ]);
   await query(
-    `INSERT INTO client_otp_codes (phone_hash, code_hash, expires_at) VALUES ($1, $2, now() + interval '10 minutes')`,
-    [phoneHash, codeHash]
+    `INSERT INTO client_otp_codes (phone_hash, purpose, code_hash, expires_at)
+     VALUES ($1, $2, $3, now() + interval '10 minutes')`,
+    [phoneHash, purpose, codeHash]
   );
 
-  const sent = await sendWhatsApp(normalized, `Seu código do kikin cliente é ${code}. Ele expira em 10 minutos.`);
+  const sent = await sendWhatsApp(normalized, OTP_MESSAGES[purpose](code));
   if (!sent.ok) {
     throw err(502, "WHATSAPP_SEND_FAILED", "Não foi possível enviar o código por WhatsApp. Tente novamente em instantes.");
   }
   const dev = config.WHATSAPP_DEV_RETURN_CODE === "true";
   return { ok: true, masked, ...(dev ? { devCode: code } : {}) };
+}
+
+/**
+ * Verifica um código OTP pelo HASH do telefone (sem precisar do número em claro) e NÃO o
+ * consome. Em código errado incrementa `attempts` de forma PERSISTENTE (fora de qualquer
+ * transação que possa sofrer rollback) — é o que impede força bruta do código de 6 dígitos.
+ * Erros claros: 400 expirado / 400 incorreto / 429 tentativas demais.
+ */
+export async function checkWhatsappOtp(input: {
+  phoneHash: string;
+  code: string;
+  purpose: WhatsappOtpPurpose;
+  db?: OtpDb;
+}): Promise<void> {
+  const db = input.db || defaultDb;
+  const otp = await latestOtp(input.phoneHash, input.purpose, db);
+  if (!otp) throw err(400, "OTP_EXPIRED", "Código expirado. Solicite um novo código.");
+  if (otp.attempts >= MAX_ATTEMPTS) throw err(429, "OTP_TOO_MANY", "Muitas tentativas. Solicite um novo código.");
+
+  if (codeHashOf(input.code) !== otp.code_hash) {
+    await db.query("UPDATE client_otp_codes SET attempts = attempts + 1 WHERE id = $1", [otp.id]);
+    throw err(400, "OTP_INVALID", "Código incorreto.");
+  }
+}
+
+/**
+ * Marca o código como usado (uso ÚNICO). Feito DENTRO da transação do chamador: o UPDATE
+ * condicional garante que o mesmo código não seja consumido duas vezes em corrida, e o
+ * rollback devolve o código ao titular. Ex.: exclusão de conta (LGPD Art. 18).
+ */
+export async function markWhatsappOtpUsed(input: {
+  phoneHash: string;
+  code: string;
+  purpose: WhatsappOtpPurpose;
+  db: OtpDb;
+}): Promise<void> {
+  const res = await input.db.query(
+    `UPDATE client_otp_codes SET used_at = now()
+     WHERE phone_hash = $1 AND purpose = $2 AND code_hash = $3
+       AND used_at IS NULL AND expires_at > now()`,
+    [input.phoneHash, input.purpose, codeHashOf(input.code)]
+  );
+  if ((res.rowCount ?? 0) === 0) {
+    throw err(400, "OTP_EXPIRED", "Código já utilizado ou expirado. Solicite um novo código.");
+  }
+}
+
+/** Número da conta decifrado em memória (só para enviar mensagem). Nunca logado/exportado. */
+export function decryptAccountPhone(phoneEnc: string | null | undefined): string | null {
+  return decryptPhone(phoneEnc);
 }
 
 export type WhatsappVerifyOutcome =
@@ -63,12 +152,11 @@ export async function verifyWhatsappOtp(input: { phone: string; code: string }):
   const normalized = normalizePhoneBR(input.phone);
   if (!normalized) throw err(400, "INVALID_PHONE", "Informe um WhatsApp válido com DDD.");
   const phoneHash = hashPhoneBR(normalized, config.KIKIN_CLIENT_PORTAL_SECRET)!;
-  const otp = await latestOtp(phoneHash);
+  const otp = await latestOtp(phoneHash, "whatsapp_signin");
   if (!otp) throw err(400, "OTP_EXPIRED", "Código expirado. Solicite um novo.");
   if (otp.attempts >= MAX_ATTEMPTS) throw err(429, "OTP_TOO_MANY", "Muitas tentativas. Solicite um novo código.");
 
-  const codeHash = crypto.createHash("sha256").update(String(input.code || "")).digest("hex");
-  if (codeHash !== otp.code_hash) {
+  if (codeHashOf(input.code) !== otp.code_hash) {
     await query("UPDATE client_otp_codes SET attempts = attempts + 1 WHERE id = $1", [otp.id]);
     throw err(400, "OTP_INVALID", "Código incorreto.");
   }

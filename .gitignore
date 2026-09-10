@@ -9,3 +9,6 @@ build/
 coverage/
 
 *.tsbuildinfo
+
+# grafo do graphify (gerado localmente)
+graphify-out/

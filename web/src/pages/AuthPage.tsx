@@ -30,6 +30,9 @@ export function AuthPage({ mode }: AuthPageProps) {
   const created = searchParams.get("criada") === "1";
   const nextParam = searchParams.get("next");
   const refParam = searchParams.get("ref");
+  // Resultado do convite gravado no próprio cadastro: o salão já entra vinculado.
+  const linkedSalon = searchParams.get("salao");
+  const inviteFailed = searchParams.get("vinculo") === "erro";
   const nextValid = nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : null;
   // Convite do estabelecimento: /cadastro?ref=<salão> → agenda naquele salão após entrar.
   const targetNext = nextValid || (refParam ? `/e/${encodeURIComponent(refParam)}` : null);
@@ -58,8 +61,30 @@ export function AuthPage({ mode }: AuthPageProps) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [consent, setConsent] = useState(false);
+  // Convite do estabelecimento: o WhatsApp é a identidade do vínculo (ADR-001).
+  const [phone, setPhone] = useState("");
+  const [whatsappOptIn, setWhatsappOptIn] = useState(false);
+  const [inviteSalonName, setInviteSalonName] = useState<string | null>(null);
   const [sentEmail, setSentEmail] = useState("");
   const [resetToken, setResetToken] = useState<string | null>(null);
+
+  // Nome do estabelecimento do convite (para o cliente saber onde está entrando).
+  useEffect(() => {
+    if (!refParam) {
+      setInviteSalonName(null);
+      return;
+    }
+    let active = true;
+    api
+      .bookingSalon(refParam)
+      .then((meta) => {
+        if (active) setInviteSalonName(meta.name);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [refParam]);
 
   const switchTab = (next: AuthMode) => {
     setTab(next);
@@ -99,20 +124,36 @@ export function AuthPage({ mode }: AuthPageProps) {
   const submitSignup = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    const phoneDigits = phone.replace(/\D/g, "");
     if (tab === "signup") {
       if (!fullName.trim() || fullName.trim().length < 2) return setError("Informe seu nome.");
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError("Informe um e-mail válido.");
       if (!password || password.length < 8) return setError("A senha deve ter no mínimo 8 caracteres.");
       if (password !== confirmPassword) return setError("As senhas não conferem.");
       if (!consent) return setError("É necessário aceitar os termos e a política de privacidade.");
+      // Cadastro pelo convite do estabelecimento: o WhatsApp é o que cria o vínculo.
+      if (refParam && phoneDigits.length < 10) {
+        return setError("Informe seu WhatsApp com DDD para vincular o estabelecimento.");
+      }
     }
     setBusy(true);
     try {
-      const res = await api.signup({ fullName, email, password, consent });
+      const res = await api.signup({
+        fullName,
+        email,
+        password,
+        consent,
+        ...(refParam ? { salonRef: refParam, phone: phoneDigits, whatsappOptIn } : {}),
+      });
       // Em dev/hml (EMAIL_VERIFY_RETURN_TOKEN) o token volta na resposta: confirma na hora.
       if (res.verificationToken) {
         await api.verifyEmail(res.verificationToken);
-        navigate(loginWithNext("criada=1"), { replace: true });
+        const inviteQuery = res.invite?.linked
+          ? `&salao=${encodeURIComponent(res.invite.salonName || inviteSalonName || refParam || "")}`
+          : refParam
+            ? "&vinculo=erro"
+            : "";
+        navigate(loginWithNext(`criada=1${inviteQuery}`), { replace: true });
         return;
       }
       setSentEmail(res.email);
@@ -197,9 +238,20 @@ export function AuthPage({ mode }: AuthPageProps) {
         </div>
 
         <div className="rounded-2xl border border-black/10 bg-white p-6 sm:p-8 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.15)]">
-          {created && (
+          {created && !linkedSalon && !inviteFailed && (
             <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
               Conta criada e e-mail confirmado! Agora entre com sua senha.
+            </div>
+          )}
+          {linkedSalon && (
+            <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+              Conta criada! Você já está vinculado a <b>{linkedSalon}</b> — entre para agendar.
+            </div>
+          )}
+          {inviteFailed && (
+            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+              Conta criada e e-mail confirmado. Não conseguimos vincular o estabelecimento do link agora — entre e
+              informe seu WhatsApp na página do salão para vincular.
             </div>
           )}
           {error && (
@@ -335,6 +387,34 @@ export function AuthPage({ mode }: AuthPageProps) {
                     <Label htmlFor="signup-pass2">Confirme a senha</Label>
                     <Input id="signup-pass2" type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="••••••••" />
                   </div>
+                  {refParam && (
+                    <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/70 p-3.5">
+                      <p className="text-xs font-semibold leading-relaxed text-blue-800">
+                        Convite de <b>{inviteSalonName || refParam}</b>. Informe seu WhatsApp para o estabelecimento já
+                        aparecer no seu painel — sem precisar recuperar cadastro depois.
+                      </p>
+                      <div>
+                        <Label htmlFor="signup-phone">Seu WhatsApp (com DDD)</Label>
+                        <Input
+                          id="signup-phone"
+                          type="tel"
+                          autoComplete="tel"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          placeholder="(11) 98765-4321"
+                        />
+                      </div>
+                      <label className="flex items-start gap-2.5 text-xs leading-relaxed text-blue-900/80 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={whatsappOptIn}
+                          onChange={(e) => setWhatsappOptIn(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
+                        />
+                        <span>Confirmo que este número é meu WhatsApp e aceito receber confirmações e lembretes por ele.</span>
+                      </label>
+                    </div>
+                  )}
                   <label className="flex items-start gap-2.5 text-xs leading-relaxed text-black/60 cursor-pointer">
                     <input
                       type="checkbox"

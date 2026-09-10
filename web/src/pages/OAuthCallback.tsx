@@ -37,6 +37,34 @@ export function OAuthCallback() {
   const [setupName, setSetupName] = useState("");
   const [setupConsent, setSetupConsent] = useState(false);
   const [setupBusy, setSetupBusy] = useState(false);
+  // Convite do estabelecimento (link /e/<slug> guardado pelo AuthPage): o cadastro com
+  // Google/Microsoft também pede o WhatsApp e já sai vinculado ao salão.
+  const pendingSlug = (() => {
+    try {
+      const raw = sessionStorage.getItem("kc_next") || "";
+      const m = raw.match(/^\/e\/([^/?#]+)/);
+      return m ? decodeURIComponent(m[1]) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const [setupPhone, setSetupPhone] = useState("");
+  const [setupOptIn, setSetupOptIn] = useState(false);
+  const [setupSalonName, setSetupSalonName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pendingSlug) return;
+    let active = true;
+    api
+      .bookingSalon(pendingSlug)
+      .then((meta) => {
+        if (active) setSetupSalonName(meta.name);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [pendingSlug]);
 
   const runSocial = async (provider: SocialProvider, code: string) => {
     setBusy(true);
@@ -81,10 +109,19 @@ export function OAuthCallback() {
     setError(null);
     if (!setupName.trim() || setupName.trim().length < 2) return setError("Informe seu nome.");
     if (!setupConsent) return setError("É necessário aceitar os termos e a política de privacidade.");
+    const phoneDigits = setupPhone.replace(/\D/g, "");
+    if (pendingSlug && phoneDigits.length < 10) {
+      return setError("Informe seu WhatsApp com DDD para vincular o estabelecimento.");
+    }
     if (!pending) return;
     setSetupBusy(true);
     try {
-      const res = await api.completeSocial({ tempToken: pending.tempToken, fullName: setupName.trim(), consent: true });
+      const res = await api.completeSocial({
+        tempToken: pending.tempToken,
+        fullName: setupName.trim(),
+        consent: true,
+        ...(pendingSlug ? { salonRef: pendingSlug, phone: phoneDigits, whatsappOptIn: setupOptIn } : {}),
+      });
       await applySession(res.tokens);
       navigate(afterLogin(), { replace: true });
     } catch (err) {
@@ -112,6 +149,34 @@ export function OAuthCallback() {
                 <Label htmlFor="setup-name">Nome</Label>
                 <Input id="setup-name" autoComplete="name" value={setupName} onChange={(e) => setSetupName(e.target.value)} />
               </div>
+              {pendingSlug && (
+                <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/70 p-3.5">
+                  <p className="text-xs font-semibold leading-relaxed text-blue-800">
+                    Convite de <b>{setupSalonName || pendingSlug}</b>. Informe seu WhatsApp para o estabelecimento já
+                    aparecer no seu painel.
+                  </p>
+                  <div>
+                    <Label htmlFor="setup-phone">Seu WhatsApp (com DDD)</Label>
+                    <Input
+                      id="setup-phone"
+                      type="tel"
+                      autoComplete="tel"
+                      value={setupPhone}
+                      onChange={(e) => setSetupPhone(e.target.value)}
+                      placeholder="(11) 98765-4321"
+                    />
+                  </div>
+                  <label className="flex items-start gap-2.5 text-xs leading-relaxed text-blue-900/80 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={setupOptIn}
+                      onChange={(e) => setSetupOptIn(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
+                    />
+                    <span>Confirmo que este número é meu WhatsApp e aceito receber confirmações e lembretes por ele.</span>
+                  </label>
+                </div>
+              )}
               <label className="flex items-start gap-2.5 text-xs leading-relaxed text-black/60 cursor-pointer">
                 <input
                   type="checkbox"

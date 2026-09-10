@@ -6,6 +6,7 @@ import linksRoutes from "./modules/links/links.routes.js";
 import bookingRoutes from "./modules/booking/booking.routes.js";
 import realtimeRoutes from "./modules/realtime/realtime.routes.js";
 import pushRoutes from "./modules/push/push.routes.js";
+import lgpdRoutes from "./modules/lgpd/lgpd.routes.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -25,6 +26,9 @@ export function createApp(): express.Express {
       res.setHeader("Vary", "Origin");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+      // Sem expor este header o navegador não lê o nome do arquivo no download do
+      // export LGPD (Content-Disposition) quando o portal está em outra origem.
+      res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
       if (req.method === "OPTIONS") {
         res.sendStatus(204);
         return;
@@ -38,6 +42,8 @@ export function createApp(): express.Express {
   });
   app.use("/api/v1", globalApiLimiter);
   app.use("/api/v1/accounts", accountsRoutes);
+  // LGPD Art. 18 do titular: export e exclusão da conta do portal (/accounts/me/export|delete).
+  app.use("/api/v1/accounts", lgpdRoutes);
   app.use("/api/v1/links", linksRoutes);
   app.use("/api/v1/booking", bookingRoutes);
   app.use("/api/v1/realtime", realtimeRoutes);

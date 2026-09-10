@@ -60,6 +60,31 @@ export const publicBookingLimiter = make({
   message: { error: "Muitas tentativas de agendamento. Aguarde alguns minutos.", code: "RATE_LIMITED" },
 });
 
+/**
+ * LGPD Art. 18 — exportação dos dados (operação pesada: banco + endpoints internos do Kikin).
+ * Limite por CONTA, no mesmo espírito do /export-data do Kikin.
+ */
+export const lgpdExportLimiter = make({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: "Limite de exportações atingido. Aguarde 15 minutos.", code: "RATE_LIMITED" },
+  keyOf: (req) => {
+    const id = (req as any).account?.accountId;
+    return id ? `user:${id}` : `ip:${clientIp(req)}`;
+  },
+});
+
+/** LGPD Art. 18 — exclusão de conta: janela curta e poucas tentativas (prova de identidade). */
+export const lgpdDeleteLimiter = make({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: "Limite de tentativas de exclusão. Aguarde 15 minutos.", code: "RATE_LIMITED" },
+  keyOf: (req) => {
+    const id = (req as any).account?.accountId;
+    return id ? `user:${id}` : `ip:${clientIp(req)}`;
+  },
+});
+
 export const perUserLimiter = make({
   windowMs: 60 * 1000,
   max: 120,

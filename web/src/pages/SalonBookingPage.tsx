@@ -4,6 +4,7 @@ import { api, ApiError, type BookingSalonMeta, type EstablishmentLink } from "@/
 import { useAuth } from "@/contexts/AuthContext";
 import { BookingModal } from "@/components/BookingModal";
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 
 /**
  * Destino do LINK que o estabelecimento envia (ex.: cliente.kikin.com.br/e/<slug>).
@@ -24,6 +25,19 @@ export function SalonBookingPage() {
   const [links, setLinks] = useState<EstablishmentLink[]>([]);
   const [booking, setBooking] = useState<BookingSalonMeta | null>(null);
   const [justBooked, setJustBooked] = useState(false);
+  // Vínculo pelo link (quem entrou por Google/Microsoft/WhatsApp não informa telefone no
+  // cadastro): aqui o cliente informa o WhatsApp e o salão entra no painel na hora.
+  const [linkPhone, setLinkPhone] = useState("");
+  const [linkOptIn, setLinkOptIn] = useState(false);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkDone, setLinkDone] = useState(false);
+
+  const fetchLinks = () =>
+    api
+      .myLinks()
+      .then((r) => setLinks(r.links))
+      .catch(() => setLinks([]));
 
   useEffect(() => {
     let active = true;
@@ -47,11 +61,32 @@ export function SalonBookingPage() {
 
   useEffect(() => {
     if (!account) return;
-    api
-      .myLinks()
-      .then((r) => setLinks(r.links))
-      .catch(() => setLinks([]));
+    void fetchLinks();
   }, [account?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const submitInviteLink = async () => {
+    const digits = linkPhone.replace(/\D/g, "");
+    if (digits.length < 10) {
+      setLinkError("Informe seu WhatsApp com DDD.");
+      return;
+    }
+    setLinkError(null);
+    setLinkBusy(true);
+    try {
+      await api.linkInvite({
+        salonRef: salon?.slug || slug,
+        phone: digits,
+        name: account?.fullName || undefined,
+        whatsappOptIn: linkOptIn,
+      });
+      await fetchLinks();
+      setLinkDone(true);
+    } catch (err) {
+      setLinkError(err instanceof ApiError ? err.message : "Não foi possível vincular agora. Tente novamente.");
+    } finally {
+      setLinkBusy(false);
+    }
+  };
 
   if (!account) {
     const next = `/e/${slug}`;
@@ -164,9 +199,46 @@ export function SalonBookingPage() {
             <p className="mt-3 max-w-md text-sm text-black/60">
               {link
                 ? "Escolha serviço, profissional e horário na agenda real do estabelecimento."
-                : "Já é cliente? Seu cadastro aqui é vinculado automaticamente quando você confirmar o horário."}
+                : "Você chegou pelo link do estabelecimento: informe seu WhatsApp para já vinculá-lo ao seu painel — ou confirme um horário, que também vincula."}
             </p>
-            <Button size="lg" className="mt-7" onClick={() => setBooking(salon)}>
+            {!link && !linkDone && (
+              <div className="mt-6 w-full max-w-md rounded-2xl border border-blue-600/25 bg-blue-50/70 p-5 text-left">
+                <p className="text-xs font-bold uppercase tracking-wide text-blue-800">
+                  Vincular {salon.name} ao meu painel
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-blue-900/80">
+                  Informe o WhatsApp do seu cadastro no estabelecimento. Não precisa agendar agora.
+                </p>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    type="tel"
+                    value={linkPhone}
+                    onChange={(e) => setLinkPhone(e.target.value)}
+                    placeholder="(11) 98765-4321"
+                    aria-label="Seu WhatsApp com DDD"
+                  />
+                  <Button onClick={submitInviteLink} disabled={linkBusy}>
+                    {linkBusy ? "Vinculando..." : "Vincular"}
+                  </Button>
+                </div>
+                <label className="mt-3 flex items-start gap-2.5 text-xs leading-relaxed text-blue-900/80 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={linkOptIn}
+                    onChange={(e) => setLinkOptIn(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
+                  />
+                  <span>Aceito receber confirmações e lembretes deste estabelecimento no WhatsApp.</span>
+                </label>
+                {linkError && <p className="mt-2 text-xs font-medium text-red-600">{linkError}</p>}
+              </div>
+            )}
+            {linkDone && (
+              <p className="mt-5 w-full max-w-md rounded-2xl border border-green-600/25 bg-green-50 p-4 text-sm font-medium text-green-700">
+                Pronto! <b>{salon.name}</b> já está vinculado ao seu painel.
+              </p>
+            )}
+            <Button size="lg" variant={link ? "primary" : "outline"} className="mt-5" onClick={() => setBooking(salon)}>
               Agendar agora
             </Button>
           </>
