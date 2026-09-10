@@ -9,6 +9,8 @@
     "start": "node dist/main.js",
     "test": "vitest run",
     "db:migrate": "tsx src/migrations/runner.ts migrate",
+    "suppression:report": "tsx src/scripts/apply-suppression-list.ts",
+    "suppression:apply": "tsx src/scripts/apply-suppression-list.ts --apply",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
