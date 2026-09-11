@@ -12,3 +12,8 @@ coverage/
 
 # grafo do graphify (gerado localmente)
 graphify-out/
+
+# Estado local das ferramentas de agente. As skills do projeto são versionadas
+# em .agents/skills; o resto de .agents/ é estado de máquina e não deve subir.
+.agents/*
+!.agents/skills/
